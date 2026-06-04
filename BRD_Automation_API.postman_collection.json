@@ -1,0 +1,756 @@
+{
+  "info": {
+    "name": "BRD Automation API",
+    "description": "Complete Postman collection for the AI-powered BRD Automation backend.\n\n## Setup\n1. Set `base_url` environment variable to `http://localhost:8000`\n2. Run requests in numbered order for a full end-to-end test.\n3. `project_id` is auto-captured from the Create Project response.\n\n## Full Flow\n1. Create Project\n2. Get Clarification Questions\n3. Submit Answers\n4. Get BRD Output\n5. Approve BRD (or Revise)\n6. Get Plan / Test Cases / Effort\n7. Download any output as DOCX",
+    "_postman_id": "brd-automation-collection-v1",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "project_id",
+      "value": "",
+      "type": "string",
+      "description": "Auto-set by the Create Project request. You can also set it manually."
+    }
+  ],
+  "item": [
+    {
+      "name": "01 — Project Lifecycle",
+      "description": "Create, monitor, and manage projects.",
+      "item": [
+        {
+          "name": "01.1 Create Project (Text Input)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"raw_input\": \"Build a B2B customer portal for enterprise clients to track their orders, view invoices, and raise support tickets. Must integrate with Salesforce CRM. GDPR compliance required. Target users are procurement managers and finance teams.\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/projects/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", ""]
+            },
+            "description": "Creates a new BRD project from a text description. Immediately fires the Clarification Agent in the background.\n\nThe project ID is auto-saved to the `project_id` collection variable."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('Response has id', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.id).to.be.a('string');",
+                  "  pm.collectionVariables.set('project_id', json.id);",
+                  "  console.log('Project ID saved:', json.id);",
+                  "});",
+                  "pm.test('Status is new', () => {",
+                  "  pm.expect(pm.response.json().status).to.equal('new');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "201 — Project Created",
+              "originalRequest": {
+                "method": "POST",
+                "body": { "mode": "raw", "raw": "{\"raw_input\": \"Build a customer portal...\"}" }
+              },
+              "status": "Created",
+              "code": 201,
+              "body": "{\n  \"id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"status\": \"new\",\n  \"message\": \"Project created. Generating clarification questions...\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "01.2 Create Project (File Upload)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "uploaded_file",
+                  "type": "file",
+                  "description": "Upload a PDF, DOCX, or TXT file with your project description"
+                },
+                {
+                  "key": "raw_input",
+                  "value": "Additional context can be added here as free text",
+                  "type": "text",
+                  "disabled": true
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/projects/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", ""]
+            },
+            "description": "Creates a project by uploading a file (PDF, DOCX, or TXT). Text is extracted automatically."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('project_id', pm.response.json().id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "01.3 Poll Project Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/status/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "status", ""]
+            },
+            "description": "Poll this endpoint every 2 seconds to track progress.\n\nStatus flow:\n`new` → `clarifying` → `awaiting_answers` → `generating_brd` → `awaiting_approval` → `approved` → `complete`"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Response has status field', () => {",
+                  "  pm.expect(pm.response.json().status).to.be.a('string');",
+                  "});",
+                  "pm.test('Response has outputs dict', () => {",
+                  "  pm.expect(pm.response.json().outputs).to.be.an('object');",
+                  "});",
+                  "const status = pm.response.json().status;",
+                  "console.log('Current project status:', status);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 — Status Response",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"status\": \"awaiting_answers\",\n  \"brd_approved\": false,\n  \"outputs\": {\n    \"clarification\": \"complete\",\n    \"brd\": \"pending\",\n    \"plan\": \"pending\",\n    \"test_cases\": \"pending\",\n    \"effort\": \"pending\"\n  },\n  \"error_message\": null,\n  \"created_at\": \"2024-01-15T10:30:00Z\",\n  \"updated_at\": \"2024-01-15T10:30:45Z\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 — Clarification Q&A",
+      "description": "Get AI-generated questions and submit user answers before BRD generation.",
+      "item": [
+        {
+          "name": "02.1 Get Clarification Questions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/clarification-questions/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "clarification-questions", ""]
+            },
+            "description": "Returns the 3-5 AI-generated clarifying questions.\n\nOnly available once project status is `awaiting_answers`.\nReturns 202 if still generating, 404 if not started yet."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.test('Questions array returned', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.questions).to.be.an('array');",
+                  "    pm.expect(json.questions.length).to.be.within(3, 5);",
+                  "  });",
+                  "  pm.test('Each question has id, question, why_asking', () => {",
+                  "    pm.response.json().questions.forEach(q => {",
+                  "      pm.expect(q.id).to.be.a('string');",
+                  "      pm.expect(q.question).to.be.a('string');",
+                  "      pm.expect(q.why_asking).to.be.a('string');",
+                  "    });",
+                  "  });",
+                  "} else if (pm.response.code === 202) {",
+                  "  console.log('Still generating questions — poll again in 2s');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 — Questions Ready",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"status\": \"awaiting_answers\",\n  \"questions\": [\n    {\n      \"id\": \"Q1\",\n      \"question\": \"Who are the primary users of this portal and what are their key pain points?\",\n      \"why_asking\": \"To define user personas and prioritise features accordingly\"\n    },\n    {\n      \"id\": \"Q2\",\n      \"question\": \"Which specific Salesforce objects and fields need to synchronise with the portal?\",\n      \"why_asking\": \"To scope the integration layer accurately\"\n    },\n    {\n      \"id\": \"Q3\",\n      \"question\": \"What data residency and GDPR obligations apply — EU-only or global?\",\n      \"why_asking\": \"To define compliance architecture requirements\"\n    },\n    {\n      \"id\": \"Q4\",\n      \"question\": \"Is there an existing design system or brand guidelines the portal must follow?\",\n      \"why_asking\": \"To scope UI/UX effort correctly\"\n    },\n    {\n      \"id\": \"Q5\",\n      \"question\": \"What is the expected number of concurrent users at peak load?\",\n      \"why_asking\": \"To define non-functional performance requirements\"\n    }\n  ]\n}"
+            },
+            {
+              "name": "202 — Still Generating",
+              "status": "Accepted",
+              "code": 202,
+              "body": "{\n  \"status\": \"clarifying\",\n  \"message\": \"Clarification questions are being generated. Please wait.\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "02.2 Submit Answers to Questions",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"answers\": {\n    \"Q1\": \"Primary users are procurement managers and finance teams at enterprise B2B clients. Key pain points are lack of visibility into order status and slow support ticket resolution.\",\n    \"Q2\": \"We need to sync Salesforce Account, Contact, Opportunity, and Case objects. Order data comes from our ERP, not Salesforce.\",\n    \"Q3\": \"GDPR compliance is required — all data must stay within EU data centres. We have EU clients only.\",\n    \"Q4\": \"Yes, we have a brand guidelines document. The portal should match our main website colour scheme (blue/white, Inter font).\",\n    \"Q5\": \"Expected peak of 500 concurrent users during business hours (9am-6pm GMT).\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/answer-questions/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "answer-questions", ""]
+            },
+            "description": "Submit user answers to the clarification questions. This triggers BRD generation immediately.\n\nThe answers dict keys must match the question IDs from the previous step."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('BRD generation started', () => {",
+                  "  pm.expect(pm.response.json().status).to.equal('generating_brd');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 — Answers Accepted",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"status\": \"generating_brd\",\n  \"message\": \"Answers saved. Generating BRD...\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 — BRD Management",
+      "description": "Retrieve, approve, or revise the generated BRD.",
+      "item": [
+        {
+          "name": "03.1 Get BRD Output",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/brd/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "brd", ""]
+            },
+            "description": "Returns the full structured BRD JSON with all 11 sections.\n\nOnly available when project status is `awaiting_approval` or later."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const output = pm.response.json().structured_output;",
+                  "  const required = ['executive_summary','project_scope','business_objectives',",
+                  "    'stakeholders','project_plan','effort_estimation','functional_requirements',",
+                  "    'non_functional_requirements','constraints_and_assumptions',",
+                  "    'success_criteria','glossary'];",
+                  "  pm.test('BRD has all 11 sections', () => {",
+                  "    required.forEach(section => {",
+                  "      pm.expect(output, `Missing: ${section}`).to.have.property(section);",
+                  "    });",
+                  "  });",
+                  "  pm.test('Functional requirements have IDs', () => {",
+                  "    output.functional_requirements.forEach(req => {",
+                  "      pm.expect(req.id).to.match(/^FR-\\d+$/);",
+                  "    });",
+                  "  });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "03.2 Approve BRD",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/approve-brd/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "approve-brd", ""]
+            },
+            "description": "Approves the BRD and triggers the remaining agents:\n1. Project Plan Agent\n2. Test Case Agent\n3. Effort Estimation Agent\n\nOnly works when project status is `awaiting_approval`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Status is approved', () => {",
+                  "  pm.expect(pm.response.json().status).to.equal('approved');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 — BRD Approved",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"status\": \"approved\",\n  \"message\": \"BRD approved. Generating project plan, test cases, and effort estimation...\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "03.3 Request BRD Revision",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"revision_notes\": \"Please add more detail on the payment integration requirements. Also clarify the SSO authentication approach — we use Okta SAML.\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/revise-brd/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "revise-brd", ""]
+            },
+            "description": "Request a revision of the BRD with specific notes. Clears the existing BRD and re-generates it incorporating the revision feedback.\n\nOnly works when status is `awaiting_approval`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Status is generating_brd', () => {",
+                  "  pm.expect(pm.response.json().status).to.equal('generating_brd');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 — Agent Outputs",
+      "description": "Retrieve structured JSON outputs from each downstream agent.",
+      "item": [
+        {
+          "name": "04.1 Get Project Plan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/plan/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "plan", ""]
+            },
+            "description": "Returns the structured Project Plan JSON generated by the Plan Agent.\n\nIncludes phases, tasks (with linked requirement IDs), risk register, and team structure."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const output = pm.response.json().structured_output;",
+                  "  pm.test('Plan has phases', () => pm.expect(output.phases).to.be.an('array'));",
+                  "  pm.test('Plan has risk register', () => pm.expect(output.risk_register).to.be.an('array'));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "04.2 Get Test Cases",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/testcases/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "testcases", ""]
+            },
+            "description": "Returns the structured Test Cases JSON.\n\nIncludes:\n- Test cases with step-by-step actions\n- Traceability matrix (requirement → test case links)\n- Coverage summary"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const output = pm.response.json().structured_output;",
+                  "  pm.test('Has test_cases array', () => pm.expect(output.test_cases).to.be.an('array'));",
+                  "  pm.test('Has traceability_matrix', () => pm.expect(output.traceability_matrix).to.be.an('array'));",
+                  "  pm.test('Test cases linked to requirements', () => {",
+                  "    output.test_cases.forEach(tc => {",
+                  "      pm.expect(tc.linked_requirement).to.match(/^FR-\\d+$/);",
+                  "    });",
+                  "  });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "04.3 Get Effort Estimation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/effort/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "effort", ""]
+            },
+            "description": "Returns the structured Effort Estimation JSON.\n\nIncludes hours/cost breakdown by:\n- Phase\n- Role (Backend Dev, BA, QA, etc.)\n- Feature area (linked to requirement IDs)\n- 3-point cost estimate (low/mid/high in USD)"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const output = pm.response.json().structured_output;",
+                  "  pm.test('Has estimation_summary', () => pm.expect(output.estimation_summary).to.be.an('object'));",
+                  "  pm.test('Has cost_estimate', () => pm.expect(output.cost_estimate).to.be.an('object'));",
+                  "  pm.test('Total hours is a number', () => pm.expect(output.estimation_summary.total_hours).to.be.a('number'));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "05 — DOCX Downloads",
+      "description": "Download any output as a formatted Word document.",
+      "item": [
+        {
+          "name": "05.1 Download BRD as DOCX",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/download/brd/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "download", "brd", ""]
+            },
+            "description": "Downloads the BRD as a formatted Word document (.docx).\n\nThe response is a binary file stream — Postman will offer to save it.\nAll 11 BRD sections are formatted with headings, tables, and bullet lists."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Content-Type is DOCX', () => {",
+                  "  pm.expect(pm.response.headers.get('Content-Type')).to.include('vnd.openxmlformats');",
+                  "});",
+                  "pm.test('Content-Disposition has filename', () => {",
+                  "  pm.expect(pm.response.headers.get('Content-Disposition')).to.include('.docx');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.2 Download Project Plan as DOCX",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/download/plan/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "download", "plan", ""]
+            },
+            "description": "Downloads the Project Plan as a formatted Word document."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Content-Type is DOCX', () => {",
+                  "  pm.expect(pm.response.headers.get('Content-Type')).to.include('vnd.openxmlformats');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.3 Download Test Cases as DOCX",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/download/testcases/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "download", "testcases", ""]
+            },
+            "description": "Downloads the Test Cases and Traceability Matrix as a formatted Word document."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Content-Type is DOCX', () => {",
+                  "  pm.expect(pm.response.headers.get('Content-Type')).to.include('vnd.openxmlformats');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.4 Download Effort Estimation as DOCX",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/download/effort/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "download", "effort", ""]
+            },
+            "description": "Downloads the Effort Estimation Report as a formatted Word document.\n\nIncludes hours breakdown by phase/role/feature and 3-point cost estimate."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Content-Type is DOCX', () => {",
+                  "  pm.expect(pm.response.headers.get('Content-Type')).to.include('vnd.openxmlformats');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "06 — Error Case Tests",
+      "description": "Tests for edge cases and error conditions.",
+      "item": [
+        {
+          "name": "06.1 Create Project Without Input (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/projects/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", ""]
+            },
+            "description": "Should return 400 — no input provided."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400', () => pm.response.to.have.status(400));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "06.2 Get Non-Existent Project (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/00000000-0000-0000-0000-000000000000/status/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "00000000-0000-0000-0000-000000000000", "status", ""]
+            },
+            "description": "Should return 404 — project does not exist."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 404', () => pm.response.to.have.status(404));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "06.3 Approve BRD When Not Awaiting (400)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/approve-brd/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "approve-brd", ""]
+            },
+            "description": "Should return 400 — can only approve when status is `awaiting_approval`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400 or 200', () => {",
+                  "  pm.expect([200, 400]).to.include(pm.response.code);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "06.4 Download DOCX — Invalid Type (400)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/download/invalid-type/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "download", "invalid-type", ""]
+            },
+            "description": "Should return 400 — invalid output type."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400', () => pm.response.to.have.status(400));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "06.5 Submit Answers Wrong Status (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"answers\": {\n    \"Q1\": \"some answer\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/projects/{{project_id}}/answer-questions/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "projects", "{{project_id}}", "answer-questions", ""]
+            },
+            "description": "Should return 400 if not in `awaiting_answers` status."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 or 400', () => {",
+                  "  pm.expect([200, 400]).to.include(pm.response.code);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    }
+  ]
+}
