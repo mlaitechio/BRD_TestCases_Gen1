@@ -86,12 +86,14 @@ Required JSON format:
 }"""
 
 
-def generate_project_plan(brd_output: dict) -> dict:
+def generate_project_plan(brd_output: dict, context_summary: str | None = None, application_type: str | None = None) -> dict:
     """
     Generate a detailed project plan from an approved BRD.
 
     Args:
         brd_output: The full structured BRD JSON from the BRD agent.
+        context_summary: Optional active project asset context for prompt injection.
+        application_type: Optional application type (e.g. salesforce, jira) to guide plan milestones.
 
     Returns:
         dict: Project plan with phases, tasks, risks, and team structure.
@@ -101,6 +103,12 @@ def generate_project_plan(brd_output: dict) -> dict:
         RuntimeError: If the AI API call fails.
     """
     import json
+
+    context_section = f"\n\n{context_summary}" if context_summary and context_summary.strip() else ''
+    
+    app_directive = ""
+    if application_type:
+        app_directive = f"\n\nCRITICAL: The target application is {application_type.upper()}. Ensure project phases and milestones reflect specific activities for this application (e.g., Salesforce Org Audit & Data Model Design, or Jira Workflow Scheme Design & Screen Configuration)."
 
     user_prompt = f"""Based on this approved BRD, generate a detailed project plan:
 
@@ -117,6 +125,6 @@ Project Scope:
 Business Objectives:
 {json.dumps(brd_output.get('business_objectives', []), indent=2)}
 
-Generate a comprehensive project plan."""
+Generate a comprehensive project plan.{context_section}{app_directive}"""
 
     return generate_json(SYSTEM_PROMPT, user_prompt)

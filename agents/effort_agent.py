@@ -88,13 +88,18 @@ Step 3: Total hours = ...
 }"""
 
 
-def generate_effort_estimation(brd_output: dict, plan_output: dict) -> dict:
+def generate_effort_estimation(
+    brd_output: dict,
+    plan_output: dict,
+    context_summary: str | None = None,
+) -> dict:
     """
     Generate effort estimation from the BRD and project plan.
 
     Args:
         brd_output: The full structured BRD JSON from the BRD agent.
         plan_output: The project plan JSON from the plan agent.
+        context_summary: Optional active project asset context for prompt injection.
 
     Returns:
         dict: Detailed effort estimation broken down by phase, role, and feature.
@@ -104,6 +109,8 @@ def generate_effort_estimation(brd_output: dict, plan_output: dict) -> dict:
         RuntimeError: If the AI API call fails.
     """
     import json
+
+    context_section = f'\n\n{context_summary}' if context_summary and context_summary.strip() else ''
 
     user_prompt = f"""Generate a detailed effort estimation based on:
 
@@ -119,7 +126,7 @@ Project Phases:
 {json.dumps(plan_output.get('phases', []), indent=2)}
 
 Team Structure:
-{json.dumps(plan_output.get('team_structure', []), indent=2)}
+{json.dumps(plan_output.get('team_structure', []), indent=2)}{context_section}
 
 Generate a comprehensive effort estimation with cost breakdown."""
 

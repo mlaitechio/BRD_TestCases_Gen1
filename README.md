@@ -59,9 +59,9 @@ The API is now live at: http://localhost:8000
 | Step | Endpoint | Method |
 |---|---|---|
 | 1. Create project | `POST /api/projects/` | POST |
-| 2. Poll status | `GET /api/projects/{id}/status/` | GET |
-| 3. Get questions | `GET /api/projects/{id}/clarification-questions/` | GET |
-| 4. Submit answers | `POST /api/projects/{id}/answer-questions/` | POST |
+| 2. Toggle/Upload Assets | `POST /api/projects/{id}/assets/` | POST |
+| 3. Save/Reorder TOC | `PUT /api/projects/{id}/toc/` | PUT |
+| 4. Trigger BRD Gen | `POST /api/projects/{id}/generate-brd/` | POST |
 | 5. Poll until awaiting_approval | `GET /api/projects/{id}/status/` | GET |
 | 6. Get BRD | `GET /api/projects/{id}/brd/` | GET |
 | 7. Approve BRD | `POST /api/projects/{id}/approve-brd/` | POST |
@@ -79,31 +79,23 @@ The API is now live at: http://localhost:8000
 # 1. Create project
 curl -X POST http://localhost:8000/api/projects/ \
   -H "Content-Type: application/json" \
-  -d "{\"raw_input\": \"Build a customer portal for B2B clients to track orders and raise support tickets. Must integrate with Salesforce CRM.\"}"
+  -d "{\"name\": \"Salesforce CRM Integration\", \"line_of_business\": \"Retail\", \"application_type\": \"salesforce\", \"department\": \"Sales\", \"raw_input\": \"Build a customer portal for B2B clients to track orders and raise support tickets. Must integrate with Salesforce CRM.\"}"
 
 # Save the returned "id" as PROJECT_ID
 
-# 2. Poll until awaiting_answers
+# 2. Trigger BRD Generation manually
+curl -X POST http://localhost:8000/api/projects/{PROJECT_ID}/generate-brd/
+
+# 3. Poll until awaiting_approval (status will become awaiting_approval)
 curl http://localhost:8000/api/projects/{PROJECT_ID}/status/
 
-# 3. Get clarification questions
-curl http://localhost:8000/api/projects/{PROJECT_ID}/clarification-questions/
-
-# 4. Submit answers
-curl -X POST http://localhost:8000/api/projects/{PROJECT_ID}/answer-questions/ \
-  -H "Content-Type: application/json" \
-  -d "{\"answers\": {\"Q1\": \"B2B enterprise clients\", \"Q2\": \"Salesforce and SAP\", \"Q3\": \"GDPR compliance required\"}}"
-
-# 5. Poll until awaiting_approval
-curl http://localhost:8000/api/projects/{PROJECT_ID}/status/
-
-# 6. Approve BRD
+# 4. Approve BRD
 curl -X POST http://localhost:8000/api/projects/{PROJECT_ID}/approve-brd/
 
-# 7. Poll until complete
+# 5. Poll until complete (status will become complete)
 curl http://localhost:8000/api/projects/{PROJECT_ID}/status/
 
-# 8. Download BRD as DOCX
+# 6. Download BRD as DOCX
 curl -o BRD.docx http://localhost:8000/api/projects/{PROJECT_ID}/download/brd/
 ```
 

@@ -68,12 +68,14 @@ Required JSON format:
 }"""
 
 
-def generate_test_cases(brd_output: dict) -> dict:
+def generate_test_cases(brd_output: dict, context_summary: str | None = None, application_type: str | None = None) -> dict:
     """
     Generate test cases from BRD functional requirements.
 
     Args:
         brd_output: The full structured BRD JSON from the BRD agent.
+        context_summary: Optional active project asset context for prompt injection.
+        application_type: Optional application type (e.g. salesforce, jira) to guide test categories.
 
     Returns:
         dict: Test cases with full traceability matrix.
@@ -86,11 +88,17 @@ def generate_test_cases(brd_output: dict) -> dict:
 
     functional_requirements = brd_output.get('functional_requirements', [])
 
+    context_section = f'\n\n{context_summary}' if context_summary and context_summary.strip() else ''
+    
+    app_directive = ""
+    if application_type:
+        app_directive = f"\n\nCRITICAL: The target application is {application_type.upper()}. Ensure test categories and specific test scenarios include relevant application-specific testing (e.g., Salesforce Profile & Permission Testing, Jira Screen Configuration Testing)."
+
     user_prompt = f"""Generate comprehensive test cases for these functional requirements:
 
 {json.dumps(functional_requirements, indent=2)}
 
-Project Context: {brd_output.get('executive_summary', '')}
+Project Context: {brd_output.get('executive_summary', '')}{context_section}{app_directive}
 
 Generate test cases with full traceability to requirement IDs."""
 

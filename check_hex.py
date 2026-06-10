@@ -1,0 +1,6 @@
+c = open('d:/BRD_Automation/apps/projects/views.py', 'rb').read()
+print('Length:', len(c))
+print('Head bytes:')
+print(c[:200])
+print('Tail bytes:')
+print(c[-200:])

@@ -135,7 +135,8 @@ Required JSON format:
 def generate_brd(
     project_description: str,
     clarification_answers: dict | None = None,
-    revision_notes: str | None = None
+    revision_notes: str | None = None,
+    context_summary: str | None = None,
 ) -> dict:
     """
     Generate a full BRD JSON document from the project description and answers.
@@ -162,10 +163,15 @@ def generate_brd(
     if revision_notes:
         revision_section = f'\n\nRevision Notes from Stakeholder:\n{revision_notes}'
 
+    context_section = ''
+    if context_summary and context_summary.strip():
+        context_section = f'\n\n{context_summary}'
+
     user_prompt = f"""Project Description:
 {project_description}
 {answers_section}
 {revision_section}
+{context_section}
 
 Generate a comprehensive BRD with all 11 required sections."""
 

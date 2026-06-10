@@ -6,91 +6,103 @@ This guide outlines the step-by-step API integration for the frontend developer 
 
 ---
 
-## The 5-Step Pipeline Flow
+## The 4-Step Pipeline Flow
 
-### Step 1: Create Project & Start Clarification
+### Step 1: Create Project
 **Endpoint**: `POST /`
 **Payload**: 
 ```json
 {
+  "name": "Customer Portal",
+  "line_of_business": "Retail Banking",
+  "application_type": "salesforce",
+  "department": "Digital Products",
   "raw_input": "User's typed project description..."
 }
 ```
 *(Note: Can also use `multipart/form-data` with `uploaded_file` if uploading a document)*
+**application_type choices**: `salesforce`, `servicenow`, `sap`, `custom`
+
 **Response**: `201 Created`
 ```json
 {
   "id": "uuid-here",
   "status": "new",
-  "message": "Project created. Generating clarification questions..."
+  "message": "Project created successfully."
 }
 ```
-**Frontend Action**: Save the `id` to state, and begin polling the `/status/` endpoint (Step 2).
-
-### Step 2: Poll Status & Get Questions
-**Endpoint**: `GET /{id}/status/`
-Poll this endpoint every 2-3 seconds.
-Watch for `status === 'awaiting_answers'`.
-
-When the status changes to `awaiting_answers`, fetch the questions:
-**Endpoint**: `GET /{id}/clarification-questions/`
-**Response**:
-```json
-{
-  "questions": [
-    {
-      "id": "Q1",
-      "question": "What is the primary target audience?",
-      "why_asking": "Needed to determine UX requirements"
-    }
-  ]
-}
-```
-**Frontend Action**: Render the questions to the user and collect their text inputs.
-
-### Step 3: Submit Answers & Start BRD Generation
-**Endpoint**: `POST /{id}/answer-questions/`
-**Payload**:
-```json
-{
-  "answers": {
-    "Q1": "User's answer here",
-    "Q2": "Another answer here"
-  }
-}
-```
-**Frontend Action**: After successful 200 OK, resume polling `/status/`. Watch for `status === 'awaiting_approval'`.
-
-### Step 4: Show BRD & Approve
-When status is `awaiting_approval`, the BRD is ready. 
-You can fetch the JSON data to display in the UI:
-**Endpoint**: `GET /{id}/brd/`
-
-You can also let the user download the DOCX file immediately!
-**Endpoint**: `GET /{id}/download/brd/` *(Triggers file download)*
-
-If the user clicks "Approve BRD":
-**Endpoint**: `POST /{id}/approve-brd/`
-**Frontend Action**: Resume polling `/status/`. Watch for `status === 'complete'`.
-
-### Step 5: Download Remaining Documents
-When status is `complete`, the remaining AI agents are done. You can provide download buttons for the final documents:
-**Endpoints**:
-- `GET /{id}/download/plan/`
-- `GET /{id}/download/testcases/`
-- `GET /{id}/download/effort/`
-
-*(Note: Files are downloaded as `application/vnd.openxmlformats-officedocument.wordprocessingml.document` and automatically named using a short, readable project title).*
+**Frontend Action**: Save the `id` to state, and redirect user to the workspace.
 
 ---
 
-### Alternative: Requesting a Revision
-If the user reviews the BRD in Step 4 and wants to reject it and request changes:
+### Step 2: Configure Workspace (Optional)
+While in the workspace, the user can:
+1. **Upload Assets**: `POST /{id}/assets/` (mom, architecture, document, etc.)
+2. **Toggle Assets**: `PATCH /{id}/assets/{asset_id}/toggle/`
+3. **Configure TOC**: `PUT /{id}/toc/` (reorder/rename sections)
+
+---
+
+### Step 3: Trigger BRD Generation
+When the user clicks the "Generate BRD" button:
+**Endpoint**: `POST /{id}/generate-brd/`
+**Response**: `200 OK`
+```json
+{
+  "id": "uuid-here",
+  "status": "generating_brd",
+  "message": "BRD generation started..."
+}
+```
+**Frontend Action**: Show loading spinner and start polling `/status/` (Step 4).
+
+---
+
+### Step 4: Poll Status & Show BRD
+**Endpoint**: `GET /{id}/status/`
+Poll this endpoint every 3 seconds. Watch for `status === 'awaiting_approval'`.
+
+When ready, fetch the full BRD JSON:
+**Endpoint**: `GET /{id}/brd/`
+
+If the user clicks "Approve BRD":
+**Endpoint**: `POST /{id}/approve-brd/`
+**Frontend Action**: Change status to `approved`. The user can now manually trigger generation of the Plan, Test Cases, and Effort.
+
+If the user requests a revision:
 **Endpoint**: `POST /{id}/revise-brd/`
 **Payload**:
 ```json
 {
-  "revision_notes": "Please add more focus on security compliance."
+  "revision_notes": "Please add focus on security..."
 }
 ```
-**Frontend Action**: Resume polling `/status/`. It will go back to `generating_brd` and eventually return to `awaiting_approval`.
+**Frontend Action**: Poll `/status/` until it goes back to `awaiting_approval`.
+
+---
+
+### Step 5: Manually Generate Deliverables
+Once the BRD is approved (`status === 'approved'`), the user can click buttons to trigger the generation of the remaining execution documents.
+
+1. **Generate Project Plan**:
+   **Endpoint**: `POST /{id}/generate-plan/`
+2. **Generate Test Cases**:
+   **Endpoint**: `POST /{id}/generate-testcases/`
+3. **Generate Effort Estimation**:
+   **Endpoint**: `POST /{id}/generate-effort/` (Note: Plan must be generated first).
+
+**Frontend Action**: When these are clicked, they will return a message starting the task. You can poll the status endpoint or provide a local loading state.
+
+---
+
+### Step 6: View & Download Documents
+When the documents are generated, you can fetch them via:
+- `GET /{id}/plan/`
+- `GET /{id}/testcases/`
+- `GET /{id}/effort/`
+
+Provide download buttons for DOCX formats:
+- `GET /{id}/download/brd/`
+- `GET /{id}/download/plan/`
+- `GET /{id}/download/testcases/`
+- `GET /{id}/download/effort/`

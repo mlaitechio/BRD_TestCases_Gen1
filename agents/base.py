@@ -2,8 +2,9 @@
 AI Provider Abstraction Layer.
 
 Reads AI_PROVIDER from .env:
-  - AI_PROVIDER=claude  → uses Anthropic claude-3-5-sonnet-20241022
-  - AI_PROVIDER=openai  → uses OpenAI gpt-4o
+  - AI_PROVIDER=claude          → Anthropic claude-sonnet
+  - AI_PROVIDER=openai          → OpenAI gpt-4o
+  - AI_PROVIDER=azure_openai    → Azure OpenAI (enterprise / production)
 
 All agents import only from this module. Switch AI providers by changing
 one environment variable — no code changes required.
@@ -17,17 +18,26 @@ from dotenv import load_dotenv
 load_dotenv()
 
 AI_PROVIDER = os.getenv('AI_PROVIDER', 'claude').lower()
-ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 
-# Claude model config
+# ── Claude config ──────────────────────────────────────────────────────────────
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
 CLAUDE_MODEL = 'claude-sonnet-4-5'
 CLAUDE_MAX_TOKENS = 8192
 
-# OpenAI model config
-OPENAI_MODEL = 'gpt-5.5'
+# ── OpenAI config ──────────────────────────────────────────────────────────────
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+OPENAI_MODEL = 'gpt-4o'
 OPENAI_MAX_TOKENS = 8192
 
+# ── Azure OpenAI config ────────────────────────────────────────────────────────
+AZURE_OPENAI_ENDPOINT = os.getenv('AZURE_OPENAI_ENDPOINT', '')
+AZURE_OPENAI_API_KEY = os.getenv('AZURE_OPENAI_API_KEY', '')
+AZURE_OPENAI_API_VERSION = os.getenv('AZURE_OPENAI_API_VERSION', '2024-06-01')
+AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME', 'gpt-4o')
+AZURE_OPENAI_MAX_TOKENS = 8192
+
+
+# ─── Public API ───────────────────────────────────────────────────────────────
 
 def generate(system_prompt: str, user_prompt: str) -> str:
     """
@@ -47,8 +57,13 @@ def generate(system_prompt: str, user_prompt: str) -> str:
         return _call_claude(system_prompt, user_prompt)
     elif AI_PROVIDER == 'openai':
         return _call_openai(system_prompt, user_prompt)
+    elif AI_PROVIDER == 'azure_openai':
+        return _call_azure_openai(system_prompt, user_prompt)
     else:
-        raise RuntimeError(f"Unknown AI_PROVIDER: '{AI_PROVIDER}'. Set to 'claude' or 'openai' in .env")
+        raise RuntimeError(
+            f"Unknown AI_PROVIDER: '{AI_PROVIDER}'. "
+            "Set to 'claude', 'openai', or 'azure_openai' in .env"
+        )
 
 
 def generate_json(system_prompt: str, user_prompt: str) -> dict:
@@ -74,6 +89,8 @@ def generate_json(system_prompt: str, user_prompt: str) -> dict:
     return _parse_json(raw)
 
 
+# ─── JSON Parser ──────────────────────────────────────────────────────────────
+
 def _parse_json(raw: str) -> dict:
     """Clean and parse a JSON string from AI output."""
     # Strip markdown code fences
@@ -96,26 +113,28 @@ def _parse_json(raw: str) -> dict:
         except json.JSONDecodeError as e2:
             error2 = e2
     else:
-        error2 = "No JSON object found."
+        error2 = 'No JSON object found.'
 
     raise ValueError(
-        f"AI response could not be parsed as JSON.\n"
-        f"Error 1 (direct): {error1}\n"
-        f"Error 2 (extracted): {error2}\n"
-        f"Raw response (first 300 chars): {raw[:300]}\n"
-        f"Raw response (last 300 chars): {raw[-300:]}"
+        f'AI response could not be parsed as JSON.\n'
+        f'Error 1 (direct): {error1}\n'
+        f'Error 2 (extracted): {error2}\n'
+        f'Raw response (first 300 chars): {raw[:300]}\n'
+        f'Raw response (last 300 chars): {raw[-300:]}'
     )
 
+
+# ─── Provider Implementations ─────────────────────────────────────────────────
 
 def _call_claude(system_prompt: str, user_prompt: str) -> str:
     """Call Anthropic Claude API."""
     try:
         import anthropic
     except ImportError:
-        raise RuntimeError("anthropic package not installed. Run: pip install anthropic")
+        raise RuntimeError('anthropic package not installed. Run: pip install anthropic')
 
     if not ANTHROPIC_API_KEY:
-        raise RuntimeError("ANTHROPIC_API_KEY is not set in .env")
+        raise RuntimeError('ANTHROPIC_API_KEY is not set in .env')
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -124,18 +143,15 @@ def _call_claude(system_prompt: str, user_prompt: str) -> str:
             model=CLAUDE_MODEL,
             max_tokens=CLAUDE_MAX_TOKENS,
             system=system_prompt,
-            extra_headers={"anthropic-beta": "max-tokens-3-5-sonnet-2024-07-15"},
-            messages=[
-                {'role': 'user', 'content': user_prompt}
-            ]
+            messages=[{'role': 'user', 'content': user_prompt}]
         )
         return message.content[0].text
     except anthropic.APITimeoutError as e:
-        raise RuntimeError(f"Claude API timeout: {e}")
+        raise RuntimeError(f'Claude API timeout: {e}')
     except anthropic.APIStatusError as e:
-        raise RuntimeError(f"Claude API error {e.status_code}: {e.message}")
+        raise RuntimeError(f'Claude API error {e.status_code}: {e.message}')
     except Exception as e:
-        raise RuntimeError(f"Claude API call failed: {e}")
+        raise RuntimeError(f'Claude API call failed: {e}')
 
 
 def _call_openai(system_prompt: str, user_prompt: str) -> str:
@@ -143,10 +159,10 @@ def _call_openai(system_prompt: str, user_prompt: str) -> str:
     try:
         from openai import OpenAI
     except ImportError:
-        raise RuntimeError("openai package not installed. Run: pip install openai")
+        raise RuntimeError('openai package not installed. Run: pip install openai')
 
     if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not set in .env")
+        raise RuntimeError('OPENAI_API_KEY is not set in .env')
 
     client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -161,4 +177,36 @@ def _call_openai(system_prompt: str, user_prompt: str) -> str:
         )
         return response.choices[0].message.content
     except Exception as e:
-        raise RuntimeError(f"OpenAI API call failed: {e}")
+        raise RuntimeError(f'OpenAI API call failed: {e}')
+
+
+def _call_azure_openai(system_prompt: str, user_prompt: str) -> str:
+    """Call Azure OpenAI Service (enterprise production provider)."""
+    try:
+        from openai import AzureOpenAI
+    except ImportError:
+        raise RuntimeError('openai package not installed. Run: pip install openai')
+
+    if not AZURE_OPENAI_API_KEY:
+        raise RuntimeError('AZURE_OPENAI_API_KEY is not set in .env')
+    if not AZURE_OPENAI_ENDPOINT:
+        raise RuntimeError('AZURE_OPENAI_ENDPOINT is not set in .env')
+
+    client = AzureOpenAI(
+        api_key=AZURE_OPENAI_API_KEY,
+        api_version=AZURE_OPENAI_API_VERSION,
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model=AZURE_OPENAI_DEPLOYMENT_NAME,   # Deployment name in Azure OpenAI Studio
+            max_completion_tokens=AZURE_OPENAI_MAX_TOKENS,
+            messages=[
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': user_prompt},
+            ]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        raise RuntimeError(f'Azure OpenAI API call failed: {e}')
