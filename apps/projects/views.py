@@ -1306,3 +1306,10 @@ class DocumentChatEditStatusView(APIView):
             )
         else:
             return Response({'status': result.state.lower()})
+
+
+class ChatAPIView(APIView):
+    def post(self, request):
+        return Response({'message': 'ChatGPT API connected!'})
+    def get(self, request):
+        return Response({'message': 'ChatGPT API connected!'})
