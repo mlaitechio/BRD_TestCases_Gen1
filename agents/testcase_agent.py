@@ -17,9 +17,10 @@ Rules:
 - Include both positive and negative test cases.
 - Test cases must be actionable and specific — not vague.
 - Include acceptance test cases that mirror the acceptance criteria in the BRD.
-- CRITICAL: ONLY generate test cases for a MAXIMUM of the top 3 functional requirements. Do NOT generate more than 6 test cases total.
+- CRITICAL: You MUST generate test cases for ALL provided functional requirements. Do not truncate or skip any.
 - CRITICAL: Keep test steps to an absolute maximum of 4 steps per test case.
-- Be concise in your test steps to ensure the entire output stays under 8000 tokens.
+- Be concise in your test steps to ensure the entire output stays within token limits.
+- Follow testing guidelines and standards from the <COMPANY_KNOWLEDGE_BASE> block (if provided).
 
 IMPORTANT: Return ONLY valid JSON. No markdown, no preamble.
 
@@ -39,21 +40,46 @@ Required JSON format:
   
   "test_cases": [
     {
-      "test_id": "TC-001",
-      "linked_requirement": "FR-001",
-      "title": "...",
-      "type": "Functional|Integration|Edge Case|Negative|Acceptance",
-      "priority": "High|Medium|Low",
-      "preconditions": ["..."],
-      "test_steps": [
-        {
-          "step": 1,
-          "action": "...",
-          "expected_result": "..."
-        }
-      ],
-      "expected_outcome": "...",
-      "pass_criteria": "..."
+      "sr_no": 1,
+      "file_name": "...",
+      "product_name": "...",
+      "process_category": "...",
+      "brd_fsd": "...",
+      "business_process_id": "...",
+      "business_process": "...",
+      "brd_fsd_reference": "FR-001",
+      "scenario_id": "...",
+      "scenario_description": "...",
+      "category": "...",
+      "importance": "High|Medium|Low",
+      "test_case_id": "TC-001",
+      "creation_date": "YYYY-MM-DD",
+      "prepared_by": "AI Agent",
+      "tc_module": "...",
+      "tc_sub_module": "...",
+      "path": "...",
+      "test_condition": "...",
+      "pre_requisite": "...",
+      "test_case_description": "Include step-by-step actions here.",
+      "test_priority": "High|Medium|Low",
+      "test_classification": "...",
+      "test_category": "...",
+      "test_data": "...",
+      "expected_result": "...",
+      "actual_result": "",
+      "release": "...",
+      "execution_status": "",
+      "execution_date": "",
+      "executed_by": "",
+      "execution_result": "",
+      "defect_id": "",
+      "severity": "",
+      "priority": "",
+      "defect_status": "",
+      "remarks": "",
+      "frequency": "",
+      "abfl_it_remarks": "",
+      "ownership": ""
     }
   ],
   
@@ -68,7 +94,7 @@ Required JSON format:
 }"""
 
 
-def generate_test_cases(brd_output: dict, context_summary: str | None = None, application_type: str | None = None) -> dict:
+def generate_test_cases(brd_output: dict, context_summary: str | None = None, application_type: str | None = None, company_knowledge_base: str | None = None) -> dict:
     """
     Generate test cases from BRD functional requirements.
 
@@ -76,6 +102,7 @@ def generate_test_cases(brd_output: dict, context_summary: str | None = None, ap
         brd_output: The full structured BRD JSON from the BRD agent.
         context_summary: Optional active project asset context for prompt injection.
         application_type: Optional application type (e.g. salesforce, jira) to guide test categories.
+        company_knowledge_base: Extracted knowledge base RAG context.
 
     Returns:
         dict: Test cases with full traceability matrix.
@@ -94,11 +121,15 @@ def generate_test_cases(brd_output: dict, context_summary: str | None = None, ap
     if application_type:
         app_directive = f"\n\nCRITICAL: The target application is {application_type.upper()}. Ensure test categories and specific test scenarios include relevant application-specific testing (e.g., Salesforce Profile & Permission Testing, Jira Screen Configuration Testing)."
 
+    knowledge_base_section = ''
+    if company_knowledge_base and company_knowledge_base.strip():
+        knowledge_base_section = f'\n\n{company_knowledge_base}'
+
     user_prompt = f"""Generate comprehensive test cases for these functional requirements:
 
 {json.dumps(functional_requirements, indent=2)}
 
-Project Context: {brd_output.get('executive_summary', '')}{context_section}{app_directive}
+Project Context: {brd_output.get('executive_summary', '')}{context_section}{app_directive}{knowledge_base_section}
 
 Generate test cases with full traceability to requirement IDs."""
 

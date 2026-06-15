@@ -175,6 +175,7 @@ class ProjectAsset(models.Model):
 
     CONNECTOR_TYPE_CHOICES = [
         ('mom', 'Minutes of Meeting'),
+        ('drafts', 'Draft BRD Document'),
         ('url', 'Reference URL'),
         ('architecture', 'Architecture / Design Diagram'),
         ('document', 'Reference Document'),

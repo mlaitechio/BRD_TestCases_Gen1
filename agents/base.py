@@ -39,13 +39,14 @@ AZURE_OPENAI_MAX_TOKENS = 8192
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 
-def generate(system_prompt: str, user_prompt: str) -> str:
+def generate(system_prompt: str, user_prompt: str, model_override: str = None) -> str:
     """
     Send a prompt to the configured AI provider and return the raw text response.
 
     Args:
         system_prompt: Instructions / persona for the AI.
         user_prompt: The actual task / content to process.
+        model_override: Optional specific model or deployment name to use for this call (e.g., a cheaper model).
 
     Returns:
         str: Raw text response from the AI model.
@@ -54,11 +55,11 @@ def generate(system_prompt: str, user_prompt: str) -> str:
         RuntimeError: If the AI call fails or returns an empty response.
     """
     if AI_PROVIDER == 'claude':
-        return _call_claude(system_prompt, user_prompt)
+        return _call_claude(system_prompt, user_prompt, model_override)
     elif AI_PROVIDER == 'openai':
-        return _call_openai(system_prompt, user_prompt)
+        return _call_openai(system_prompt, user_prompt, model_override)
     elif AI_PROVIDER == 'azure_openai':
-        return _call_azure_openai(system_prompt, user_prompt)
+        return _call_azure_openai(system_prompt, user_prompt, model_override)
     else:
         raise RuntimeError(
             f"Unknown AI_PROVIDER: '{AI_PROVIDER}'. "
@@ -66,7 +67,7 @@ def generate(system_prompt: str, user_prompt: str) -> str:
         )
 
 
-def generate_json(system_prompt: str, user_prompt: str) -> dict:
+def generate_json(system_prompt: str, user_prompt: str, model_override: str = None) -> dict:
     """
     Call the AI and parse the response as JSON.
 
@@ -78,6 +79,7 @@ def generate_json(system_prompt: str, user_prompt: str) -> dict:
     Args:
         system_prompt: Instructions / persona for the AI.
         user_prompt: The actual task / content to process.
+        model_override: Optional specific model or deployment name to use for this call.
 
     Returns:
         dict: Parsed JSON response.
@@ -85,7 +87,7 @@ def generate_json(system_prompt: str, user_prompt: str) -> dict:
     Raises:
         ValueError: If the response cannot be parsed as valid JSON.
     """
-    raw = generate(system_prompt, user_prompt)
+    raw = generate(system_prompt, user_prompt, model_override)
     return _parse_json(raw)
 
 
@@ -126,7 +128,7 @@ def _parse_json(raw: str) -> dict:
 
 # ─── Provider Implementations ─────────────────────────────────────────────────
 
-def _call_claude(system_prompt: str, user_prompt: str) -> str:
+def _call_claude(system_prompt: str, user_prompt: str, model_override: str = None) -> str:
     """Call Anthropic Claude API."""
     try:
         import anthropic
@@ -140,7 +142,7 @@ def _call_claude(system_prompt: str, user_prompt: str) -> str:
 
     try:
         message = client.messages.create(
-            model=CLAUDE_MODEL,
+            model=model_override or CLAUDE_MODEL,
             max_tokens=CLAUDE_MAX_TOKENS,
             system=system_prompt,
             messages=[{'role': 'user', 'content': user_prompt}]
@@ -154,7 +156,7 @@ def _call_claude(system_prompt: str, user_prompt: str) -> str:
         raise RuntimeError(f'Claude API call failed: {e}')
 
 
-def _call_openai(system_prompt: str, user_prompt: str) -> str:
+def _call_openai(system_prompt: str, user_prompt: str, model_override: str = None) -> str:
     """Call OpenAI API."""
     try:
         from openai import OpenAI
@@ -168,7 +170,7 @@ def _call_openai(system_prompt: str, user_prompt: str) -> str:
 
     try:
         response = client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=model_override or OPENAI_MODEL,
             max_completion_tokens=OPENAI_MAX_TOKENS,
             messages=[
                 {'role': 'system', 'content': system_prompt},
@@ -180,7 +182,7 @@ def _call_openai(system_prompt: str, user_prompt: str) -> str:
         raise RuntimeError(f'OpenAI API call failed: {e}')
 
 
-def _call_azure_openai(system_prompt: str, user_prompt: str) -> str:
+def _call_azure_openai(system_prompt: str, user_prompt: str, model_override: str = None) -> str:
     """Call Azure OpenAI Service (enterprise production provider)."""
     try:
         from openai import AzureOpenAI
@@ -200,7 +202,7 @@ def _call_azure_openai(system_prompt: str, user_prompt: str) -> str:
 
     try:
         response = client.chat.completions.create(
-            model=AZURE_OPENAI_DEPLOYMENT_NAME,   # Deployment name in Azure OpenAI Studio
+            model=model_override or AZURE_OPENAI_DEPLOYMENT_NAME,   # Deployment name in Azure OpenAI Studio
             max_completion_tokens=AZURE_OPENAI_MAX_TOKENS,
             messages=[
                 {'role': 'system', 'content': system_prompt},

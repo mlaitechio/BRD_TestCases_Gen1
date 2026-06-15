@@ -1163,6 +1163,8 @@ class DownloadOutputView(APIView):
             export_testcases_to_docx,
             export_effort_to_docx,
         )
+        from utils.excel_exporter import export_testcases_to_excel
+        from utils.pdf_exporter import export_brd_to_pdf, export_plan_to_pdf
 
         EXPORTERS = {
             'brd': export_brd_to_docx,
@@ -1192,10 +1194,21 @@ class DownloadOutputView(APIView):
                 status=status.HTTP_425_TOO_EARLY
             )
 
-        try:
-            exporter = EXPORTERS[output_type]
-            buffer = exporter(output.structured_output)
+        format_param = request.GET.get('format', 'docx').lower()
 
+        if format_param == 'excel' and output_type != 'testcases':
+            return Response(
+                {'error': 'Excel format is only supported for testcases.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        if format_param == 'pdf' and output_type not in ['brd', 'plan']:
+            return Response(
+                {'error': 'PDF format is only supported for BRD and Project Plan.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
             import re
             source_text = project.name or project.extracted_text or ''
             clean_text = re.sub(r'[^a-zA-Z0-9\s]', '', source_text)
@@ -1203,17 +1216,38 @@ class DownloadOutputView(APIView):
             if not short_name:
                 short_name = f'Project_{str(project.id)[:8]}'
 
-            filename = f'{short_name}_{filename_prefix}.docx'
+            if format_param == 'excel':
+                # Convert bytes from our exporter into BytesIO so FileResponse can consume it
+                import io
+                buffer = export_testcases_to_excel(output.structured_output)
+                stream = io.BytesIO(buffer)
+                filename = f'{short_name}_{filename_prefix}.xlsx'
+                content_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            elif format_param == 'pdf':
+                import io
+                if output_type == 'brd':
+                    buffer = export_brd_to_pdf(output.structured_output)
+                else:
+                    buffer = export_plan_to_pdf(output.structured_output)
+                stream = io.BytesIO(buffer)
+                filename = f'{short_name}_{filename_prefix}.pdf'
+                content_type = 'application/pdf'
+            else:
+                exporter = EXPORTERS[output_type]
+                stream = exporter(output.structured_output)
+                filename = f'{short_name}_{filename_prefix}.docx'
+                content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
             return FileResponse(
-                buffer,
+                stream,
                 as_attachment=True,
                 filename=filename,
-                content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                content_type=content_type
             )
         except Exception as e:
-            logger.error(f'DOCX export failed for project {project.id} type {output_type}: {e}')
+            logger.error(f'{format_param.upper()} export failed for project {project.id} type {output_type}: {e}')
             return Response(
-                {'error': f'DOCX generation failed: {str(e)}'},
+                {'error': f'{format_param.upper()} generation failed: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

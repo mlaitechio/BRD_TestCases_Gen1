@@ -17,6 +17,7 @@ openai>=1.35
 
 # Document export
 python-docx>=1.1
+reportlab>=4.0
 
 # File text extraction
 pdfplumber>=0.11
@@ -38,3 +39,8 @@ azure-core>=1.30
 # Production server
 gunicorn>=21.2
 whitenoise>=6.6
+
+# RAG & Excel
+chromadb>=0.4.0
+tiktoken>=0.7.0
+openpyxl>=3.1.0

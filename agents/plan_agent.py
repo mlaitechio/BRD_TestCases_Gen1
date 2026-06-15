@@ -12,6 +12,7 @@ SYSTEM_PROMPT = """You are a senior project manager with expertise in software d
 Your task is to take an approved BRD and generate a detailed project plan in JSON format.
 
 The plan must be realistic, phased, and directly traceable to the BRD requirements.
+Adhere strictly to any planning guidelines, project structures, or past templates provided in the <COMPANY_KNOWLEDGE_BASE> block (if provided).
 
 IMPORTANT: Return ONLY valid JSON. No markdown, no preamble.
 CRITICAL LIMITS:
@@ -86,7 +87,7 @@ Required JSON format:
 }"""
 
 
-def generate_project_plan(brd_output: dict, context_summary: str | None = None, application_type: str | None = None) -> dict:
+def generate_project_plan(brd_output: dict, context_summary: str | None = None, application_type: str | None = None, company_knowledge_base: str | None = None) -> dict:
     """
     Generate a detailed project plan from an approved BRD.
 
@@ -94,6 +95,7 @@ def generate_project_plan(brd_output: dict, context_summary: str | None = None, 
         brd_output: The full structured BRD JSON from the BRD agent.
         context_summary: Optional active project asset context for prompt injection.
         application_type: Optional application type (e.g. salesforce, jira) to guide plan milestones.
+        company_knowledge_base: Extracted knowledge base RAG context.
 
     Returns:
         dict: Project plan with phases, tasks, risks, and team structure.
@@ -110,6 +112,10 @@ def generate_project_plan(brd_output: dict, context_summary: str | None = None, 
     if application_type:
         app_directive = f"\n\nCRITICAL: The target application is {application_type.upper()}. Ensure project phases and milestones reflect specific activities for this application (e.g., Salesforce Org Audit & Data Model Design, or Jira Workflow Scheme Design & Screen Configuration)."
 
+    knowledge_base_section = ''
+    if company_knowledge_base and company_knowledge_base.strip():
+        knowledge_base_section = f'\n\n{company_knowledge_base}'
+
     user_prompt = f"""Based on this approved BRD, generate a detailed project plan:
 
 BRD Summary: {brd_output.get('executive_summary', '')}
@@ -125,6 +131,6 @@ Project Scope:
 Business Objectives:
 {json.dumps(brd_output.get('business_objectives', []), indent=2)}
 
-Generate a comprehensive project plan.{context_section}{app_directive}"""
+Generate a comprehensive project plan.{context_section}{app_directive}{knowledge_base_section}"""
 
     return generate_json(SYSTEM_PROMPT, user_prompt)

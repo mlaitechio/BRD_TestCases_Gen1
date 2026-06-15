@@ -39,6 +39,8 @@ def extract_text_from_file(file_path: str) -> str | None:
             return _extract_from_docx(file_path)
         elif ext == '.txt':
             return _extract_from_txt(file_path)
+        elif ext in ('.xlsx', '.xls'):
+            return _extract_from_xlsx(file_path)
         else:
             logger.warning(f'Unsupported file type: {ext}')
             return None
@@ -122,3 +124,32 @@ def _extract_from_txt(file_path: str) -> str:
             continue
 
     raise RuntimeError(f'Could not decode TXT file with any supported encoding: {file_path}')
+
+
+def _extract_from_xlsx(file_path: str) -> str:
+    """Extract text from XLSX using openpyxl, traversing all sheets."""
+    try:
+        import openpyxl
+    except ImportError:
+        raise RuntimeError("openpyxl package not installed. Cannot extract Excel.")
+
+    # data_only=True ensures we get formula results rather than the formula text
+    wb = openpyxl.load_workbook(file_path, data_only=True)
+    text_parts = []
+    
+    for sheet_name in wb.sheetnames:
+        sheet = wb[sheet_name]
+        text_parts.append(f"--- Sheet: {sheet_name} ---")
+        for row in sheet.iter_rows(values_only=True):
+            # filter out None and empty strings, convert others to string
+            row_texts = [str(cell).strip() for cell in row if cell is not None and str(cell).strip()]
+            if row_texts:
+                text_parts.append(" | ".join(row_texts))
+                
+    text = '\n'.join(text_parts).strip()
+    if text:
+        logger.info(f'XLSX extracted: {len(text)} chars')
+        return text
+    else:
+        logger.warning(f'XLSX {file_path} was empty or unreadable.')
+        return ""

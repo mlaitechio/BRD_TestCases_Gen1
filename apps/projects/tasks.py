@@ -30,6 +30,7 @@ def run_brd_task(self, project_id: str):
     from apps.projects.models import Project, AgentOutput
     from agents.brd_agent import generate_brd
     from utils.context_builder import build_context_for_project, build_project_metadata_block
+    from utils.search import search_knowledge_base
 
     try:
         project = Project.objects.get(id=project_id)
@@ -53,12 +54,16 @@ def run_brd_task(self, project_id: str):
 
         answers = project.clarification_answers or {}
 
+        # Retrieve global knowledge base guidance
+        company_kb = search_knowledge_base(project.name or "General BRD Requirements", top_k=3)
+
         logger.info(f'[BRD] Starting for project {project_id}')
         result = generate_brd(
             project_description=full_description,
             clarification_answers=answers,
             revision_notes=project.revision_notes,
             context_summary=asset_context,
+            company_knowledge_base=company_kb,
         )
 
         agent_output.status = 'complete'
@@ -91,6 +96,7 @@ def run_plan_task(self, project_id: str):
     from apps.projects.models import Project, AgentOutput
     from agents.plan_agent import generate_project_plan
     from utils.context_builder import build_context_for_project
+    from utils.search import search_knowledge_base
 
     try:
         project = Project.objects.get(id=project_id)
@@ -108,6 +114,7 @@ def run_plan_task(self, project_id: str):
             brd_data = brd_record.structured_output
 
         asset_context = build_context_for_project(project)
+        company_kb = search_knowledge_base(project.name or "General Project Plan", top_k=3)
         
         logger.info(f'[Plan] Starting for project {project_id}')
         plan_record, _ = AgentOutput.objects.update_or_create(
@@ -115,7 +122,7 @@ def run_plan_task(self, project_id: str):
             agent_type='plan',
             defaults={'status': 'running'}
         )
-        plan_data = generate_project_plan(brd_data, context_summary=asset_context, application_type=project.application_type)
+        plan_data = generate_project_plan(brd_data, context_summary=asset_context, application_type=project.application_type, company_knowledge_base=company_kb)
         plan_record.status = 'complete'
         plan_record.structured_output = plan_data
         plan_record.raw_output = str(plan_data)
@@ -140,6 +147,7 @@ def run_testcases_task(self, project_id: str):
     from apps.projects.models import Project, AgentOutput
     from agents.testcase_agent import generate_test_cases
     from utils.context_builder import build_context_for_project
+    from utils.search import search_knowledge_base
 
     try:
         project = Project.objects.get(id=project_id)
@@ -156,6 +164,7 @@ def run_testcases_task(self, project_id: str):
             brd_data = brd_record.structured_output
 
         asset_context = build_context_for_project(project)
+        company_kb = search_knowledge_base(project.name or "General Test Cases", top_k=3)
         
         logger.info(f'[TestCase] Starting for project {project_id}')
         tc_record, _ = AgentOutput.objects.update_or_create(
@@ -163,7 +172,7 @@ def run_testcases_task(self, project_id: str):
             agent_type='test_cases',
             defaults={'status': 'running'}
         )
-        tc_data = generate_test_cases(brd_data, context_summary=asset_context, application_type=project.application_type)
+        tc_data = generate_test_cases(brd_data, context_summary=asset_context, application_type=project.application_type, company_knowledge_base=company_kb)
         tc_record.status = 'complete'
         tc_record.structured_output = tc_data
         tc_record.raw_output = str(tc_data)

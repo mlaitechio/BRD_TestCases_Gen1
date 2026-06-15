@@ -18,6 +18,7 @@ The BRD must include ALL of the following 11 sections. Do not omit any section.
 
 IMPORTANT RULES:
 - Infer and apply relevant compliance standards from the project context.
+- Adhere strictly to the format, tone, and guidance provided in the <COMPANY_KNOWLEDGE_BASE> block (if provided).
 - Make all requirements SMART.
 - Every functional requirement must have a unique ID (FR-001). CRITICAL: LIMIT to EXACTLY top 8-10 functional requirements. Do NOT generate more than 10.
 - Every non-functional requirement must have a unique ID (NFR-001). CRITICAL: LIMIT to EXACTLY 5 non-functional requirements.
@@ -137,6 +138,7 @@ def generate_brd(
     clarification_answers: dict | None = None,
     revision_notes: str | None = None,
     context_summary: str | None = None,
+    company_knowledge_base: str | None = None,
 ) -> dict:
     """
     Generate a full BRD JSON document from the project description and answers.
@@ -145,6 +147,8 @@ def generate_brd(
         project_description: Extracted text from user input or uploaded file.
         clarification_answers: Dict mapping question IDs to user answers.
         revision_notes: Optional notes if user requested a revision.
+        context_summary: Text from extracted assets.
+        company_knowledge_base: Extracted knowledge base RAG context.
 
     Returns:
         dict: Full BRD structured output with all 11 sections.
@@ -167,11 +171,16 @@ def generate_brd(
     if context_summary and context_summary.strip():
         context_section = f'\n\n{context_summary}'
 
+    knowledge_base_section = ''
+    if company_knowledge_base and company_knowledge_base.strip():
+        knowledge_base_section = f'\n\n{company_knowledge_base}'
+
     user_prompt = f"""Project Description:
 {project_description}
 {answers_section}
 {revision_section}
 {context_section}
+{knowledge_base_section}
 
 Generate a comprehensive BRD with all 11 required sections."""
 
