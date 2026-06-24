@@ -10,19 +10,40 @@ Environment-driven configuration:
 
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# ─── App Environment ──────────────────────────────────────────────────────────
+# Set APP_ENV=prod in .env for production; anything else is treated as dev.
+APP_ENV = os.getenv('APP_ENV', 'dev').lower()
+
 # ─── Security ─────────────────────────────────────────────────────────────────
 
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-secret-key-change-in-production')
 
-DEBUG = os.getenv('DEBUG', 'True') == 'True'
+# In prod, DEBUG defaults to False unless explicitly overridden to True. In dev, defaults to True.
+_default_debug = 'False' if APP_ENV == 'prod' else 'True'
+DEBUG = os.getenv('DEBUG', _default_debug) == 'True'
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
+_prod_url = os.getenv('PROD_URL', '').strip()
+
+if APP_ENV == 'prod':
+    _allowed = [h.strip() for h in os.getenv('ALLOWED_HOSTS', '').split(',') if h.strip() and h.strip() != '*']
+    if _prod_url:
+        _prod_host = urlparse(_prod_url).hostname
+        if _prod_host and _prod_host not in _allowed:
+            _allowed.append(_prod_host)
+    ALLOWED_HOSTS = _allowed
+else:
+    ALLOWED_HOSTS = ['*']
+
+# Required for HTTPS termination in production behind a proxy/load balancer
+if APP_ENV == 'prod':
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # ─── Installed Apps ───────────────────────────────────────────────────────────
 
@@ -37,6 +58,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'django_celery_results',
     'apps.projects',
+    'apps.authentication',          # CyberArk OAuth2/OIDC authentication
 ]
 
 # ─── Middleware ───────────────────────────────────────────────────────────────
@@ -51,6 +73,9 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # ── CyberArk auth middleware ───────────────────────────────────────────────
+    'apps.authentication.middleware.JWTAuthMiddleware',       # attaches request.auth_payload
+    'apps.authentication.middleware.SecurityHeadersMiddleware', # security response headers
 ]
 
 ROOT_URLCONF = 'brd_system.urls'
@@ -75,9 +100,10 @@ WSGI_APPLICATION = 'brd_system.wsgi.application'
 
 # ─── Database ─────────────────────────────────────────────────────────────────
 # Local dev: SQLite (default)
-# Production: PostgreSQL — set DB_ENGINE=postgresql and all DB_* env vars in .env
+# Production: PostgreSQL if DB_HOST is set, otherwise safely falls back to SQLite
 
-_db_engine = os.getenv('DB_ENGINE', 'sqlite')
+_default_db_engine = 'postgresql' if (APP_ENV == 'prod' and os.getenv('DB_HOST')) else 'sqlite'
+_db_engine = os.getenv('DB_ENGINE', _default_db_engine)
 
 if _db_engine == 'postgresql':
     DATABASES = {
@@ -119,9 +145,13 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-# ─── Static & Media Files ─────────────────────────────────────────────────────
+# ─── URL Prefix & Static / Media Files ────────────────────────────────────────
+# Flexible URL prefix (e.g. 'chatgpt/'). Set URL_PREFIX= in .env to move back to root (/).
+URL_PREFIX = os.getenv('URL_PREFIX', 'chatgpt/').lstrip('/').rstrip('/')
+if URL_PREFIX:
+    URL_PREFIX = f"{URL_PREFIX}/"
 
-STATIC_URL = '/assets/'
+STATIC_URL = f'/{URL_PREFIX}assets/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
@@ -131,15 +161,21 @@ STATICFILES_DIRS = [
 
 LOCALE_PATHS = (os.path.join(os.path.dirname(__file__), '..', 'locale').replace('\\', '/'),)
 
-MEDIA_URL = '/media/'
+MEDIA_URL = f'/{URL_PREFIX}media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# ─── CORS ─────────────────────────────────────────────────────────────────────
+# ─── CORS & CSRF ──────────────────────────────────────────────────────────────
 
 CORS_ALLOW_ALL_ORIGINS = DEBUG  # Open CORS only in debug mode
-CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if not DEBUG else []
+_cors_origins = [o.strip() for o in os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if o.strip()]
+if _prod_url and _prod_url not in _cors_origins:
+    _cors_origins.append(_prod_url)
+
+CORS_ALLOWED_ORIGINS = _cors_origins if not DEBUG else []
+CSRF_TRUSTED_ORIGINS = _cors_origins
 
 # ─── Django REST Framework ────────────────────────────────────────────────────
 
@@ -220,3 +256,54 @@ AZURE_SEARCH_API_KEY = os.getenv('AZURE_SEARCH_API_KEY', '')
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024   # 20 MB max upload
 FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
+
+# ─── CyberArk OAuth2 / OIDC ──────────────────────────────────────────────────
+# Set these in your .env file.  AUTH_URL / TOKEN_URL / USER_INFO_URL are the
+# CyberArk Identity (or PAM OIDC) tenant endpoints.
+
+_app_env = APP_ENV
+
+AUTH_CLIENT_ID      = os.getenv('CLIENT_ID', '')
+AUTH_CLIENT_SECRET  = os.getenv('CLIENT_SECRET', '')
+AUTH_URL            = os.getenv('AUTH_URL', '')        # e.g. https://<tenant>/oauth2/authorize
+AUTH_TOKEN_URL      = os.getenv('TOKEN_URL', '')       # e.g. https://<tenant>/oauth2/token
+AUTH_USER_INFO_URL  = os.getenv('USER_INFO_URL', '')   # e.g. https://<tenant>/oauth2/userinfo
+
+_dev_url  = 'http://localhost:8000'
+AUTH_REDIRECT_URI = _prod_url if _app_env == 'prod' else _dev_url
+
+AUTH_REQUEST_TIMEOUT = 30  # seconds
+
+# HTTP proxy — only applied in production (matches Flask reference)
+AUTH_PROXIES = (
+    {
+        'http':  os.getenv('HTTP_PROXY', ''),
+        'https': os.getenv('HTTPS_PROXY', ''),
+    }
+    if _app_env == 'prod'
+    else None
+)
+
+# ─── JWT Settings ─────────────────────────────────────────────────────────────
+# AUTH_JWT_SECRET       — primary HS256 signing secret
+# AUTH_JWT_SECRETS      — comma-separated list of rotation secrets (older/newer)
+# Tokens are valid for 8 hours and carry iss + aud claims.
+
+AUTH_JWT_SECRET    = os.getenv('JWT_SECRET', '')
+AUTH_JWT_SECRETS   = [s.strip() for s in os.getenv('JWT_SECRETS', '').split(',') if s.strip()]
+AUTH_JWT_ALGORITHM = os.getenv('JWT_ALGORITHM', 'HS256')
+AUTH_JWT_ISSUER    = os.getenv('JWT_ISSUER', 'brd-verification-backend')
+AUTH_JWT_AUDIENCE  = os.getenv('JWT_AUDIENCE', 'brd-verification-app')
+
+# ─── Auth Cookie Settings ─────────────────────────────────────────────────────
+# HttpOnly JWT cookies — same behaviour as the Flask reference app.
+
+AUTH_COOKIE_HTTPONLY = True
+AUTH_COOKIE_MAX_AGE  = 8 * 60 * 60  # 8 hours
+
+if _app_env == 'prod':
+    AUTH_COOKIE_SECURE   = True
+    AUTH_COOKIE_SAMESITE = 'None'
+else:
+    AUTH_COOKIE_SECURE   = False
+    AUTH_COOKIE_SAMESITE = 'None'  # cross-origin dev (Vite on :5173 → Django on :8000)

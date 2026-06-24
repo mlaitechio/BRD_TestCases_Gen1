@@ -3,6 +3,13 @@ django>=4.2
 djangorestframework>=3.15
 django-cors-headers>=4.3
 
+# Authentication
+PyJWT>=2.8        # JWT creation and verification (CyberArk auth)
+pytz>=2024.1      # Timezone-aware timestamps in verify_auth
+
+# Image extraction & AI vision
+pymupdf>=1.24     # PyMuPDF — extract embedded images from PDFs (import as fitz)
+
 # Async task processing
 celery>=5.3
 redis>=5.0

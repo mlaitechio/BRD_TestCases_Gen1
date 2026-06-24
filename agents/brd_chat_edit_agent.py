@@ -44,11 +44,12 @@ You will receive:
 1. A user instruction describing changes they want made to a BRD
 2. A map of the current BRD sections (key → brief excerpt)
 
-Your task is to decide WHICH sections need to be updated to fulfil the instruction.
+Your task is to decide WHICH sections need to be updated OR CREATED to fulfil the instruction.
 
 Rules:
 - Only include sections that are genuinely relevant to the instruction
 - Do NOT include sections just to be thorough — only include ones that need real changes
+- If the instruction requires a completely NEW section that doesn't exist, invent a concise `section_key` (lowercase_with_underscores) for it.
 - For each section, write a specific rewrite instruction for that section
 - Return ONLY valid JSON — no markdown, no explanation
 
@@ -130,22 +131,27 @@ def apply_chat_instruction_to_brd(
         section_key = item.get('section_key', '')
         rewrite_instruction = item.get('rewrite_instruction', instruction)
 
-        # Skip if the section doesn't exist in the current BRD
+        is_new = False
         if section_key not in current_brd:
-            logger.warning(f'[BRDChatEdit] Section "{section_key}" not found in BRD — skipping')
-            failed_sections.append({
-                'section_key': section_key,
-                'status': 'skipped',
-                'reason': 'Section key not found in current BRD',
-            })
-            continue
+            logger.info(f'[BRDChatEdit] Section "{section_key}" not found in BRD — treating as a NEW section')
+            is_new = True
+            current_content = {
+                "content_blocks": [
+                    {
+                        "type": "paragraph",
+                        "text": ""
+                    }
+                ]
+            }
+        else:
+            current_content = current_brd[section_key]
 
         logger.info(f'[BRDChatEdit] Rewriting section: "{section_key}"')
 
         try:
             new_content = edit_brd_section(
                 section_key=section_key,
-                current_content=current_brd[section_key],
+                current_content=current_content,
                 edit_instructions=rewrite_instruction,
                 project_context=project_context,
             )
@@ -153,9 +159,9 @@ def apply_chat_instruction_to_brd(
             changes_summary.append({
                 'section_key': section_key,
                 'instruction_applied': rewrite_instruction,
-                'status': 'updated',
+                'status': 'created' if is_new else 'updated',
             })
-            logger.info(f'[BRDChatEdit] Section "{section_key}" updated successfully')
+            logger.info(f'[BRDChatEdit] Section "{section_key}" {"created" if is_new else "updated"} successfully')
 
         except (ValueError, RuntimeError) as e:
             logger.error(f'[BRDChatEdit] Failed to rewrite section "{section_key}": {e}')

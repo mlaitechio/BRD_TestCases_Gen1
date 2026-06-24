@@ -58,12 +58,17 @@ def run_brd_task(self, project_id: str):
         company_kb = search_knowledge_base(project.name or "General BRD Requirements", top_k=3)
 
         logger.info(f'[BRD] Starting for project {project_id}')
+        
+        active_toc = project.toc_sections.filter(is_enabled=True).order_by('order')
+        toc_data = [{'key': t.key, 'label': t.label, 'is_custom': t.is_custom} for t in active_toc]
+
         result = generate_brd(
             project_description=full_description,
             clarification_answers=answers,
             revision_notes=project.revision_notes,
             context_summary=asset_context,
             company_knowledge_base=company_kb,
+            toc_sections=toc_data if toc_data else None,
         )
 
         agent_output.status = 'complete'
@@ -407,6 +412,25 @@ def run_brd_chat_edit_task(self, project_id: str, instruction: str, auto_save_ve
             output.structured_output = result['updated_brd']
             output.raw_output = str(result['updated_brd'])
             output.save(update_fields=['structured_output', 'raw_output', 'updated_at'])
+            
+            # Check for newly created sections and add them to TOC
+            from apps.projects.models import TOCSection
+            from django.db.models import Max
+            for change in result['changes_summary']:
+                if change.get('status') == 'created':
+                    key = change['section_key']
+                    # Label from key e.g. "data_migration" -> "Data Migration"
+                    label = key.replace('_', ' ').title()
+                    max_order = project.toc_sections.aggregate(Max('order'))['order__max'] or 0
+                    TOCSection.objects.create(
+                        project=project,
+                        key=key,
+                        label=label,
+                        is_custom=True,
+                        order=max_order + 10
+                    )
+                    logger.info(f'[BRDChatEdit] Created new TOCSection for key "{key}"')
+                    
         logger.info(
             f'[BRDChatEdit] Complete for project {project_id}: '
             f'{result["sections_updated_count"]} sections updated'

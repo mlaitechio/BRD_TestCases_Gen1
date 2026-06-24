@@ -24,7 +24,10 @@ import logging
 import os
 import re
 
+from utils.image_extractor import extract_and_describe_images
+
 logger = logging.getLogger(__name__)
+
 
 # Maximum characters to send to the LLM for summarisation
 MAX_TEXT_FOR_SUMMARY = 12000
@@ -54,17 +57,48 @@ def extract_and_summarise(asset) -> tuple[str, str, str | None]:
     try:
         if connector_type == 'url':
             extracted_text = _extract_from_url(asset.url)
+            image_descriptions = ''  # URLs: no local file to scan
         else:
             if not asset.file:
                 return '', '', f'No file uploaded for asset type "{connector_type}"'
             file_path = asset.file.path
             extracted_text = _extract_from_file(file_path, connector_type)
 
-        if not extracted_text or not extracted_text.strip():
-            return '', '', 'Could not extract any text from the source.'
+            # ── Image extraction ────────────────────────────────────────────
+            # Extract and describe any images embedded in PDF/DOCX files,
+            # or describe the file itself if it IS an image.
+            image_descriptions = ''
+            try:
+                image_descriptions = extract_and_describe_images(file_path)
+                if image_descriptions:
+                    logger.info(
+                        f'[AssetExtractor] Image analysis added for asset {asset.id} '
+                        f'({len(image_descriptions)} chars)'
+                    )
+            except Exception as img_exc:
+                logger.warning(
+                    f'[AssetExtractor] Image extraction skipped for asset {asset.id}: {img_exc}'
+                )
 
-        summary = _summarise(extracted_text, connector_type, asset.title)
-        return extracted_text, summary, None
+        if not extracted_text or not extracted_text.strip():
+            # If there's no text but there ARE image descriptions, use those
+            if image_descriptions:
+                extracted_text = ''
+            else:
+                return '', '', 'Could not extract any text from the source.'
+
+        # Merge text + image descriptions before summarisation
+        combined_text = extracted_text.strip()
+        if image_descriptions:
+            combined_text += (
+                '\n\n'
+                '=== EMBEDDED IMAGE ANALYSIS ===\n'
+                '(Images extracted from the document and described by AI vision)\n\n'
+                + image_descriptions
+            )
+
+        summary = _summarise(combined_text, connector_type, asset.title)
+        return combined_text, summary, None
 
     except Exception as e:
         logger.exception(f'[AssetExtractor] Failed for asset {asset.id}: {e}')
@@ -163,11 +197,9 @@ def _extract_from_file(file_path: str, connector_type: str) -> str:
     elif ext in ('.txt', '.md', '.csv', '.eml'):
         return _extract_text_file(file_path)
     elif ext in ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'):
-        # For architecture diagrams — describe the image using AI vision
-        if connector_type == 'architecture':
-            return _describe_image_with_ai(file_path)
-        else:
-            return f'[Image vision description stub: {os.path.basename(file_path)}]'
+        # All connector types: describe image using AI vision
+        # (previously only 'architecture' was handled this way)
+        return _describe_image_with_ai(file_path)
     elif ext in ('.mp3', '.wav', '.m4a', '.ogg'):
         return f'[Audio file transcription stub: {os.path.basename(file_path)}]'
     else:

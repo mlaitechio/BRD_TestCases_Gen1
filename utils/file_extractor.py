@@ -13,7 +13,10 @@ should tell the user to paste the text manually instead.
 import logging
 import os
 
+from utils.image_extractor import extract_and_describe_images
+
 logger = logging.getLogger(__name__)
+
 
 
 def extract_text_from_file(file_path: str) -> str | None:
@@ -34,19 +37,43 @@ def extract_text_from_file(file_path: str) -> str | None:
 
     try:
         if ext == '.pdf':
-            return _extract_from_pdf(file_path)
+            text = _extract_from_pdf(file_path)
         elif ext in ('.docx', '.doc'):
-            return _extract_from_docx(file_path)
+            text = _extract_from_docx(file_path)
         elif ext == '.txt':
-            return _extract_from_txt(file_path)
+            text = _extract_from_txt(file_path)
         elif ext in ('.xlsx', '.xls'):
-            return _extract_from_xlsx(file_path)
+            text = _extract_from_xlsx(file_path)
+        elif ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'):
+            # Direct image upload — describe with AI vision via image_extractor
+            text = ''
         else:
             logger.warning(f'Unsupported file type: {ext}')
             return None
     except Exception as e:
         logger.error(f'Text extraction failed for {file_path}: {e}')
         return None
+
+    # ── Append embedded image descriptions (PDF / DOCX / direct image) ────────────
+    if ext in ('.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'):
+        try:
+            image_descriptions = extract_and_describe_images(file_path)
+            if image_descriptions:
+                text = (text or '')
+                text += (
+                    '\n\n'
+                    '=== EMBEDDED IMAGE ANALYSIS ===\n'
+                    '(Images described by AI vision for BRD context)\n\n'
+                    + image_descriptions
+                )
+                logger.info(
+                    f'Image analysis appended for {os.path.basename(file_path)} '
+                    f'({len(image_descriptions)} chars)'
+                )
+        except Exception as img_exc:
+            logger.warning(f'Image extraction skipped for {file_path}: {img_exc}')
+
+    return text.strip() if text else None
 
 
 def _extract_from_pdf(file_path: str) -> str:

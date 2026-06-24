@@ -42,7 +42,7 @@ def _create_table(data, headers):
     ]))
     return t
 
-def export_brd_to_pdf(structured_output: dict) -> bytes:
+def export_brd_to_pdf(structured_output: dict, toc_sections: list[dict] = None, project_name: str = None, version: str = None) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter)
     story = []
@@ -50,118 +50,156 @@ def export_brd_to_pdf(structured_output: dict) -> bytes:
     title_style, h1_style, h2_style, normal_style, bullet_style = _create_styles()
     
     story.append(Paragraph('Business Requirements Document', title_style))
-    story.append(Spacer(1, 12))
     
-    # 1. Executive Summary
-    story.append(Paragraph('1. Executive Summary', h1_style))
-    story.append(Paragraph(structured_output.get('executive_summary', ''), normal_style))
-    story.append(Spacer(1, 12))
+    p_name = project_name or structured_output.get("project_name") or ""
+    if p_name and p_name.lower() != "business requirements document":
+        story.append(Paragraph(p_name, h1_style))
+        
+    ver = version or structured_output.get("version", "1.0")
+    story.append(Paragraph(f"Version {ver}", normal_style))
+    story.append(Spacer(1, 24))
     
-    # 2. Project Scope
-    story.append(Paragraph('2. Project Scope', h1_style))
-    scope = structured_output.get('project_scope', {})
-    story.append(Paragraph('In Scope', h2_style))
-    for item in scope.get('in_scope', []):
-        story.append(Paragraph(f'• {item}', bullet_style))
-    story.append(Paragraph('Out of Scope', h2_style))
-    for item in scope.get('out_of_scope', []):
-        story.append(Paragraph(f'• {item}', bullet_style))
-    story.append(Spacer(1, 12))
-    
-    # 3. Business Objectives
-    story.append(Paragraph('3. Business Objectives', h1_style))
-    for obj in structured_output.get('business_objectives', []):
-        story.append(Paragraph(f"{obj.get('id', '')} - {obj.get('objective', '')}", h2_style))
-        story.append(Paragraph(f"Metric: {obj.get('metric', '')}", normal_style))
-        story.append(Paragraph(f"Target: {obj.get('target', '')}", normal_style))
-    story.append(Spacer(1, 12))
-    
-    # 4. Stakeholders
-    story.append(Paragraph('4. Stakeholder List', h1_style))
-    stakeholders = structured_output.get('stakeholders', [])
-    if stakeholders:
-        headers = ['Role', 'Responsibilities', 'Interest', 'Influence']
-        data = [[s.get('role', ''), s.get('responsibilities', ''), s.get('interest_level', ''), s.get('influence_level', '')] for s in stakeholders]
-        story.append(_create_table(data, headers))
-    story.append(Spacer(1, 12))
-    
-    # 5. Project Plan
-    story.append(Paragraph('5. Project Plan', h1_style))
-    plan = structured_output.get('project_plan', {})
-    for phase in plan.get('phases', []):
-        story.append(Paragraph(f"{phase.get('phase', '')} ({phase.get('duration', '')})", h2_style))
-        story.append(Paragraph('Deliverables:', normal_style))
-        for d in phase.get('deliverables', []):
-            story.append(Paragraph(f'• {d}', bullet_style))
-        story.append(Paragraph('Milestones:', normal_style))
-        for m in phase.get('milestones', []):
-            story.append(Paragraph(f'• {m}', bullet_style))
-    story.append(Spacer(1, 12))
-    
-    # 6. Effort Estimation
-    story.append(Paragraph('6. Effort Estimation', h1_style))
-    effort = structured_output.get('effort_estimation', {})
-    story.append(Paragraph(f"Total Estimated Hours: {effort.get('total_estimated_hours', 'TBD')}", normal_style))
-    story.append(Paragraph(effort.get('summary', ''), normal_style))
-    breakdown = effort.get('breakdown', [])
-    if breakdown:
-        headers = ['Component', 'Hours', 'Complexity']
-        data = [[b.get('component', ''), b.get('hours', ''), b.get('complexity', '')] for b in breakdown]
-        story.append(_create_table(data, headers))
-    story.append(Spacer(1, 12))
-    
-    # 7. Functional Requirements
-    story.append(Paragraph('7. Functional Requirements', h1_style))
-    for req in structured_output.get('functional_requirements', []):
-        story.append(Paragraph(f"{req.get('id', '')} - {req.get('title', '')}", h2_style))
-        story.append(Paragraph(f"Priority: {req.get('priority', '')}", normal_style))
-        story.append(Paragraph(req.get('description', ''), normal_style))
-        story.append(Paragraph('Acceptance Criteria:', normal_style))
-        for ac in req.get('acceptance_criteria', []):
-            story.append(Paragraph(f'• {ac}', bullet_style))
-        compliance = req.get('compliance_notes', '')
-        if compliance and compliance != 'N/A':
-            story.append(Paragraph(f"Compliance: {compliance}", normal_style))
-    story.append(Spacer(1, 12))
-    
-    # 8. Non-Functional Requirements
-    story.append(Paragraph('8. Non-Functional Requirements', h1_style))
-    nfr_list = structured_output.get('non_functional_requirements', [])
-    if nfr_list:
-        headers = ['ID', 'Category', 'Requirement', 'Metric', 'Priority']
-        data = [[n.get('id', ''), n.get('category', ''), n.get('requirement', ''), n.get('metric', ''), n.get('priority', '')] for n in nfr_list]
-        story.append(_create_table(data, headers))
-    story.append(Spacer(1, 12))
-    
-    # 9. Constraints and Assumptions
-    story.append(Paragraph('9. Constraints and Assumptions', h1_style))
-    ca = structured_output.get('constraints_and_assumptions', {})
-    story.append(Paragraph('Constraints', h2_style))
-    for con in ca.get('constraints', []):
-        story.append(Paragraph(f"{con.get('id', '')} - {con.get('description', '')}", h2_style))
-        story.append(Paragraph(f"Impact: {con.get('impact', '')}", normal_style))
-    story.append(Paragraph('Assumptions', h2_style))
-    for ass in ca.get('assumptions', []):
-        story.append(Paragraph(f"{ass.get('id', '')} - {ass.get('description', '')}", h2_style))
-        story.append(Paragraph(f"Risk if Wrong: {ass.get('risk_if_wrong', '')}", normal_style))
-    story.append(Spacer(1, 12))
-    
-    # 10. Success Criteria
-    story.append(Paragraph('10. Success Criteria', h1_style))
-    for sc in structured_output.get('success_criteria', []):
-        story.append(Paragraph(f"{sc.get('id', '')} - {sc.get('criterion', '')}", h2_style))
-        story.append(Paragraph(f"Measurement: {sc.get('measurement_method', '')}", normal_style))
-        story.append(Paragraph(f"Target: {sc.get('target', '')}", normal_style))
-    story.append(Spacer(1, 12))
-    
-    # 11. Glossary
-    story.append(Paragraph('11. Glossary', h1_style))
-    glossary = structured_output.get('glossary', [])
-    if glossary:
-        headers = ['Term', 'Definition']
-        data = [[g.get('term', ''), g.get('definition', '')] for g in glossary]
-        story.append(_create_table(data, headers))
-    
+    if not toc_sections:
+        keys = ["executive_summary", "project_scope", "business_objectives", "stakeholders", 
+                "project_plan", "effort_estimation", "functional_requirements", 
+                "non_functional_requirements", "constraints_and_assumptions", 
+                "success_criteria", "glossary"]
+        toc_sections = [{"key": k, "label": k.replace('_', ' ').title()} for k in keys]
+
+    story.append(Paragraph('Table of Contents', h1_style))
+    for idx, sec in enumerate(toc_sections, start=1):
+        key = sec['key']
+        label = sec.get('label', key.replace('_', ' ').title())
+        story.append(Paragraph(f"{idx}. {label}", normal_style))
+    story.append(Spacer(1, 24))
+
+    for idx, sec in enumerate(toc_sections, start=1):
+        key = sec['key']
+        label = sec.get('label', key.replace('_', ' ').title())
+        content = structured_output.get(key)
+        
+        story.append(Paragraph(f'{idx}. {label}', h1_style))
+        
+        if not content:
+            story.append(Paragraph("Content not provided.", normal_style))
+            story.append(Spacer(1, 12))
+            continue
+            
+        if key == "executive_summary":
+            story.append(Paragraph(content, normal_style))
+        elif key == "project_scope":
+            story.append(Paragraph('In Scope', h2_style))
+            for item in content.get('in_scope', []):
+                story.append(Paragraph(f'• {item}', bullet_style))
+            story.append(Paragraph('Out of Scope', h2_style))
+            for item in content.get('out_of_scope', []):
+                story.append(Paragraph(f'• {item}', bullet_style))
+        elif key == "business_objectives":
+            for obj in content:
+                story.append(Paragraph(f"{obj.get('id', '')} - {obj.get('objective', '')}", h2_style))
+                story.append(Paragraph(f"Metric: {obj.get('metric', '')}", normal_style))
+                story.append(Paragraph(f"Target: {obj.get('target', '')}", normal_style))
+        elif key == "stakeholders":
+            headers = ['Role', 'Responsibilities', 'Interest', 'Influence']
+            data = [[s.get('role', ''), s.get('responsibilities', ''), s.get('interest_level', ''), s.get('influence_level', '')] for s in content]
+            story.append(_create_table(data, headers))
+        elif key == "project_plan":
+            for phase in content.get('phases', []):
+                story.append(Paragraph(f"{phase.get('phase', '')} ({phase.get('duration', '')})", h2_style))
+                story.append(Paragraph('Deliverables:', normal_style))
+                for d in phase.get('deliverables', []):
+                    story.append(Paragraph(f'• {d}', bullet_style))
+                story.append(Paragraph('Milestones:', normal_style))
+                for m in phase.get('milestones', []):
+                    story.append(Paragraph(f'• {m}', bullet_style))
+        elif key == "effort_estimation":
+            story.append(Paragraph(f"Total Estimated Hours: {content.get('total_estimated_hours', 'TBD')}", normal_style))
+            story.append(Paragraph(content.get('summary', ''), normal_style))
+            breakdown = content.get('breakdown', [])
+            if breakdown:
+                headers = ['Component', 'Hours', 'Complexity']
+                data = [[b.get('component', ''), b.get('hours', ''), b.get('complexity', '')] for b in breakdown]
+                story.append(_create_table(data, headers))
+        elif key == "functional_requirements":
+            for req in content:
+                story.append(Paragraph(f"{req.get('id', '')} - {req.get('title', '')}", h2_style))
+                story.append(Paragraph(f"Priority: {req.get('priority', '')}", normal_style))
+                story.append(Paragraph(req.get('description', ''), normal_style))
+                story.append(Paragraph('Acceptance Criteria:', normal_style))
+                for ac in req.get('acceptance_criteria', []):
+                    story.append(Paragraph(f'• {ac}', bullet_style))
+                compliance = req.get('compliance_notes', '')
+                if compliance and compliance != 'N/A':
+                    story.append(Paragraph(f"Compliance: {compliance}", normal_style))
+        elif key == "non_functional_requirements":
+            headers = ['ID', 'Category', 'Requirement', 'Metric', 'Priority']
+            data = [[n.get('id', ''), n.get('category', ''), n.get('requirement', ''), n.get('metric', ''), n.get('priority', '')] for n in content]
+            story.append(_create_table(data, headers))
+        elif key in ["constraints_and_assumptions", "assumptions_and_dependencies"]:
+            story.append(Paragraph('Constraints', h2_style))
+            for con in content.get('constraints', []):
+                story.append(Paragraph(f"{con.get('id', '')} - {con.get('description', '')}", h2_style))
+                story.append(Paragraph(f"Impact: {con.get('impact', '')}", normal_style))
+            story.append(Paragraph('Assumptions', h2_style))
+            for ass in content.get('assumptions', []):
+                story.append(Paragraph(f"{ass.get('id', '')} - {ass.get('description', '')}", h2_style))
+                story.append(Paragraph(f"Risk if Wrong: {ass.get('risk_if_wrong', '')}", normal_style))
+        elif key == "success_criteria":
+            for sc in content:
+                story.append(Paragraph(f"{sc.get('id', '')} - {sc.get('criterion', '')}", h2_style))
+                story.append(Paragraph(f"Measurement: {sc.get('measurement_method', '')}", normal_style))
+                story.append(Paragraph(f"Target: {sc.get('target', '')}", normal_style))
+        elif key == "glossary":
+            headers = ['Term', 'Definition']
+            data = [[g.get('term', ''), g.get('definition', '')] for g in content]
+            story.append(_create_table(data, headers))
+        elif key == "integration_requirements":
+            for sc in content:
+                story.append(Paragraph(f"{sc.get('system', '')} - {sc.get('integration_type', '')}", h2_style))
+                story.append(Paragraph(sc.get("description", ""), normal_style))
+        elif key == "risks_and_mitigations":
+            for sc in content:
+                story.append(Paragraph(f"{sc.get('id', '')} - {sc.get('description', '')}", h2_style))
+                story.append(Paragraph(f"Probability: {sc.get('probability', '')}", normal_style))
+                story.append(Paragraph(f"Impact: {sc.get('impact', '')}", normal_style))
+                story.append(Paragraph(f"Mitigation: {sc.get('mitigation', '')}", normal_style))
+        elif key == "sign_off_matrix":
+            headers = ["Role", "Name", "Sign-off Date"]
+            data = [[g.get("role", ""), g.get("name", ""), g.get("sign_off_date", "")] for g in content]
+            story.append(_create_table(data, headers))
+        else:
+            if isinstance(content, dict) and "content_blocks" in content:
+                for block in content.get("content_blocks", []):
+                    btype = block.get("type")
+                    if btype == "paragraph":
+                        story.append(Paragraph(block.get("text", ""), normal_style))
+                    elif btype == "list":
+                        for item in block.get("items", []):
+                            story.append(Paragraph(f'• {str(item)}', bullet_style))
+                    elif btype == "table":
+                        headers = block.get("headers", [])
+                        rows = block.get("rows", [])
+                        if headers and rows:
+                            story.append(_create_table(rows, headers))
+            elif isinstance(content, str):
+                story.append(Paragraph(content, normal_style))
+            elif isinstance(content, list):
+                for item in content:
+                    story.append(Paragraph(f'• {str(item)}', bullet_style))
+            elif isinstance(content, dict):
+                for k, v in content.items():
+                    if k != "title":
+                        story.append(Paragraph(k.replace('_', ' ').title(), h2_style))
+                    if isinstance(v, list):
+                        for item in v:
+                            story.append(Paragraph(f'• {str(item)}', bullet_style))
+                    elif isinstance(v, str):
+                        story.append(Paragraph(str(v), normal_style))
+            else:
+                story.append(Paragraph(str(content), normal_style))
+                
+        story.append(Spacer(1, 12))
+        
     doc.build(story)
     return buffer.getvalue()
 

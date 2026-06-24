@@ -95,6 +95,9 @@ def generate_json(system_prompt: str, user_prompt: str, model_override: str = No
 
 def _parse_json(raw: str) -> dict:
     """Clean and parse a JSON string from AI output."""
+    if not raw or not raw.strip():
+        raise ValueError("AI response was completely empty. This usually happens if the BRD has no content or the AI model blocked the response (e.g. content filters).")
+
     # Strip markdown code fences
     cleaned = raw.strip()
     cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
@@ -209,6 +212,13 @@ def _call_azure_openai(system_prompt: str, user_prompt: str, model_override: str
                 {'role': 'user', 'content': user_prompt},
             ]
         )
-        return response.choices[0].message.content
+        
+        choice = response.choices[0]
+        content = choice.message.content
+        if not content or not content.strip():
+            finish_reason = getattr(choice, 'finish_reason', 'unknown')
+            raise RuntimeError(f'Azure OpenAI returned empty content. Finish reason: {finish_reason}')
+            
+        return content
     except Exception as e:
         raise RuntimeError(f'Azure OpenAI API call failed: {e}')

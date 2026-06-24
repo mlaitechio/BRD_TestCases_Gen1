@@ -320,6 +320,7 @@ class TOCSection(models.Model):
         ('executive_summary', 'Executive Summary', True),
         ('project_scope', 'Project Scope', True),
         ('current_state_analysis', 'Current State Analysis', False),
+        ('business_objectives', 'Business Objectives', True),
         ('functional_requirements', 'Functional Requirements', True),
         ('non_functional_requirements', 'Non-Functional Requirements', True),
         ('integration_requirements', 'Integration Requirements', False),
@@ -328,7 +329,9 @@ class TOCSection(models.Model):
         ('stakeholders', 'Stakeholder Register', True),
         ('project_plan', 'Project Plan', False),
         ('effort_estimation', 'Effort Estimation', False),
+        ('success_criteria', 'Success Criteria', True),
         ('sign_off_matrix', 'Sign-off Matrix', True),
+        ('glossary', 'Glossary', False),
     ]
 
     # Application specific optional sections

@@ -871,10 +871,17 @@ class TOCView(APIView):
                 if is_req:
                     is_enabled = True
                     
+                label = sec.get('label')
+                if not label:
+                    if key.startswith('custom_'):
+                        label = f'Section {idx + 1}'
+                    else:
+                        label = key.replace('_', ' ').title()
+                        
                 new_sections.append(TOCSection(
                     project=project,
                     key=key,
-                    label=sec.get('label', f'Section {idx + 1}'),
+                    label=label,
                     order=sec.get('order', idx + 1),
                     is_enabled=is_enabled,
                     is_required=is_req,
@@ -1217,7 +1224,6 @@ class DownloadOutputView(APIView):
                 short_name = f'Project_{str(project.id)[:8]}'
 
             if format_param == 'excel':
-                # Convert bytes from our exporter into BytesIO so FileResponse can consume it
                 import io
                 buffer = export_testcases_to_excel(output.structured_output)
                 stream = io.BytesIO(buffer)
@@ -1225,8 +1231,14 @@ class DownloadOutputView(APIView):
                 content_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             elif format_param == 'pdf':
                 import io
+                
+                version_count = project.versions.count() if hasattr(project, 'versions') else 0
+                ver_str = f"{version_count + 1}.0" if version_count else "1.0"
+                
                 if output_type == 'brd':
-                    buffer = export_brd_to_pdf(output.structured_output)
+                    active_toc = project.toc_sections.filter(is_enabled=True).order_by('order')
+                    toc_data = [{'key': t.key, 'label': t.label, 'is_custom': t.is_custom} for t in active_toc]
+                    buffer = export_brd_to_pdf(output.structured_output, toc_sections=toc_data, project_name=project.name, version=ver_str)
                 else:
                     buffer = export_plan_to_pdf(output.structured_output)
                 stream = io.BytesIO(buffer)
@@ -1234,7 +1246,16 @@ class DownloadOutputView(APIView):
                 content_type = 'application/pdf'
             else:
                 exporter = EXPORTERS[output_type]
-                stream = exporter(output.structured_output)
+                
+                version_count = project.versions.count() if hasattr(project, 'versions') else 0
+                ver_str = f"{version_count + 1}.0" if version_count else "1.0"
+                
+                if output_type == 'brd':
+                    active_toc = project.toc_sections.filter(is_enabled=True).order_by('order')
+                    toc_data = [{'key': t.key, 'label': t.label, 'is_custom': t.is_custom} for t in active_toc]
+                    stream = exporter(output.structured_output, toc_sections=toc_data, project_name=project.name, version=ver_str)
+                else:
+                    stream = exporter(output.structured_output)
                 filename = f'{short_name}_{filename_prefix}.docx'
                 content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
