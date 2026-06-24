@@ -13,7 +13,30 @@ one environment variable — no code changes required.
 import os
 import json
 import re
+import ssl
+import warnings
 from dotenv import load_dotenv
+
+# ==============================================================================
+# GLOBAL SSL VERIFICATION DISABLE (Bypass Enterprise Proxy & IP Mismatch)
+# ==============================================================================
+try:
+    if hasattr(ssl, '_create_unverified_context'):
+        ssl._create_default_https_context = ssl._create_unverified_context
+    def _custom_unverified_context(*args, **kwargs):
+        ctx = ssl._create_unverified_context(*args, **kwargs)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    ssl.create_default_context = _custom_unverified_context
+except Exception:
+    pass
+
+os.environ['PYTHONHTTPSVERIFY'] = '0'
+os.environ['CURL_CA_BUNDLE'] = ''
+os.environ['REQUESTS_CA_BUNDLE'] = ''
+warnings.filterwarnings('ignore')
+# ==============================================================================
 
 load_dotenv()
 
@@ -131,6 +154,8 @@ def _parse_json(raw: str) -> dict:
 
 # ─── Provider Implementations ─────────────────────────────────────────────────
 
+import httpx
+
 def _call_claude(system_prompt: str, user_prompt: str, model_override: str = None) -> str:
     """Call Anthropic Claude API."""
     try:
@@ -141,7 +166,8 @@ def _call_claude(system_prompt: str, user_prompt: str, model_override: str = Non
     if not ANTHROPIC_API_KEY:
         raise RuntimeError('ANTHROPIC_API_KEY is not set in .env')
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    http_client = httpx.Client(verify=False)
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, http_client=http_client)
 
     try:
         message = client.messages.create(
@@ -169,7 +195,8 @@ def _call_openai(system_prompt: str, user_prompt: str, model_override: str = Non
     if not OPENAI_API_KEY:
         raise RuntimeError('OPENAI_API_KEY is not set in .env')
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    http_client = httpx.Client(verify=False)
+    client = OpenAI(api_key=OPENAI_API_KEY, http_client=http_client)
 
     try:
         response = client.chat.completions.create(
@@ -197,10 +224,12 @@ def _call_azure_openai(system_prompt: str, user_prompt: str, model_override: str
     if not AZURE_OPENAI_ENDPOINT:
         raise RuntimeError('AZURE_OPENAI_ENDPOINT is not set in .env')
 
+    http_client = httpx.Client(verify=False)
     client = AzureOpenAI(
         api_key=AZURE_OPENAI_API_KEY,
         api_version=AZURE_OPENAI_API_VERSION,
         azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        http_client=http_client,
     )
 
     try:

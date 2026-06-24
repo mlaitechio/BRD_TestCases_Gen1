@@ -290,7 +290,7 @@ def _openai_vision(image_b64: str, media_type: str, use_azure: bool = False) -> 
    
     response = client.chat.completions.create(
         model=model,
-        max_tokens=600,
+        max_completion_tokens=600,
         messages=[
             {
                 "role": "user",
