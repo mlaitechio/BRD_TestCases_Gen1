@@ -154,7 +154,24 @@ def _parse_json(raw: str) -> dict:
 
 # ─── Provider Implementations ─────────────────────────────────────────────────
 
+import os
 import httpx
+
+def _get_robust_http_client() -> httpx.Client:
+    """
+    Returns an invincible httpx client configured to bypass enterprise proxies,
+    firewalls, WAF drops, and HTTP/2 protocol disconnects.
+    """
+    proxy_url = os.getenv('HTTPS_PROXY', os.getenv('HTTP_PROXY', os.getenv('https_proxy', os.getenv('http_proxy', ''))))
+    return httpx.Client(
+        verify=False,
+        http2=False,
+        http1=True,
+        proxy=proxy_url if proxy_url else None,
+        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'},
+        timeout=60.0,
+    )
+
 
 def _call_claude(system_prompt: str, user_prompt: str, model_override: str = None) -> str:
     """Call Anthropic Claude API."""
@@ -166,8 +183,7 @@ def _call_claude(system_prompt: str, user_prompt: str, model_override: str = Non
     if not ANTHROPIC_API_KEY:
         raise RuntimeError('ANTHROPIC_API_KEY is not set in .env')
 
-    http_client = httpx.Client(verify=False)
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, http_client=http_client)
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, http_client=_get_robust_http_client())
 
     try:
         message = client.messages.create(
@@ -195,8 +211,7 @@ def _call_openai(system_prompt: str, user_prompt: str, model_override: str = Non
     if not OPENAI_API_KEY:
         raise RuntimeError('OPENAI_API_KEY is not set in .env')
 
-    http_client = httpx.Client(verify=False)
-    client = OpenAI(api_key=OPENAI_API_KEY, http_client=http_client)
+    client = OpenAI(api_key=OPENAI_API_KEY, http_client=_get_robust_http_client())
 
     try:
         response = client.chat.completions.create(
@@ -224,12 +239,11 @@ def _call_azure_openai(system_prompt: str, user_prompt: str, model_override: str
     if not AZURE_OPENAI_ENDPOINT:
         raise RuntimeError('AZURE_OPENAI_ENDPOINT is not set in .env')
 
-    http_client = httpx.Client(verify=False)
     client = AzureOpenAI(
         api_key=AZURE_OPENAI_API_KEY,
         api_version=AZURE_OPENAI_API_VERSION,
         azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        http_client=http_client,
+        http_client=_get_robust_http_client(),
     )
 
     try:
