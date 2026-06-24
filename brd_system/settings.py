@@ -63,7 +63,7 @@ if APP_ENV == 'prod':
     ALLOWED_HOSTS = _allowed
 else:
     ALLOWED_HOSTS = ['*']
-
+ALLOWED_HOSTS = ['*']
 # Required for HTTPS termination in production behind a proxy/load balancer
 if APP_ENV == 'prod':
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
