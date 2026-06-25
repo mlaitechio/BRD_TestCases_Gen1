@@ -42,7 +42,7 @@ except Exception:
 # ==============================================================================
 
 import chromadb
-from chromadb.utils import embedding_functions
+from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,42 @@ def _get_robust_http_client() -> httpx.Client:
         headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0'},
         timeout=60.0,
     )
+
+class RobustAzureOpenAIEmbeddingFunction(EmbeddingFunction):
+    def __init__(self, api_key: str, api_base: str, api_version: str, deployment_id: str, http_client):
+        from openai import AzureOpenAI
+        self.client = AzureOpenAI(
+            api_key=api_key,
+            api_version=api_version,
+            azure_endpoint=api_base,
+            http_client=http_client,
+            max_retries=1,
+        )
+        self.deployment_id = deployment_id
+
+    def __call__(self, input: Documents) -> Embeddings:
+        response = self.client.embeddings.create(
+            model=self.deployment_id,
+            input=input
+        )
+        return [data.embedding for data in response.data]
+
+class RobustOpenAIEmbeddingFunction(EmbeddingFunction):
+    def __init__(self, api_key: str, model_name: str, http_client):
+        from openai import OpenAI
+        self.client = OpenAI(
+            api_key=api_key,
+            http_client=http_client,
+            max_retries=1,
+        )
+        self.model_name = model_name
+
+    def __call__(self, input: Documents) -> Embeddings:
+        response = self.client.embeddings.create(
+            model=self.model_name,
+            input=input
+        )
+        return [data.embedding for data in response.data]
 
 class GlobalKnowledgeBase:
     def __init__(self):
@@ -84,13 +120,11 @@ class GlobalKnowledgeBase:
             deployment_id = os.getenv('AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME', os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME', 'text-embedding-ada-002'))
             
             if api_key and api_base:
-                self.embedding_fn = embedding_functions.OpenAIEmbeddingFunction(
+                self.embedding_fn = RobustAzureOpenAIEmbeddingFunction(
                     api_key=api_key,
                     api_base=api_base,
-                    api_type="azure",
                     api_version=api_version,
                     deployment_id=deployment_id,
-                    model_name=deployment_id,
                     http_client=http_client,
                 )
             else:
@@ -99,7 +133,7 @@ class GlobalKnowledgeBase:
         else:
             openai_key = os.getenv('OPENAI_API_KEY')
             if openai_key:
-                self.embedding_fn = embedding_functions.OpenAIEmbeddingFunction(
+                self.embedding_fn = RobustOpenAIEmbeddingFunction(
                     api_key=openai_key,
                     model_name="text-embedding-3-small",
                     http_client=http_client,
