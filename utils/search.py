@@ -15,6 +15,32 @@ Usage:
 import logging
 import os
 import httpx
+
+# ==============================================================================
+# COMPLETELY DISABLE CHROMA DB TELEMETRY & POSTHOG TO PREVENT CELERY FORK DEADLOCK
+# ==============================================================================
+os.environ['ANONYMIZED_TELEMETRY'] = 'False'
+os.environ['POSTHOG_DISABLED'] = '1'
+
+class DummyTelemetry:
+    def __init__(self, *args, **kwargs): pass
+    def start(self): pass
+    def stop(self): pass
+    def capture(self, *args, **kwargs): pass
+
+try:
+    import chromadb.telemetry.product.posthog
+    chromadb.telemetry.product.posthog.Posthog = DummyTelemetry
+except Exception:
+    pass
+
+try:
+    import posthoganalytics
+    posthoganalytics.Posthog = DummyTelemetry
+except Exception:
+    pass
+# ==============================================================================
+
 import chromadb
 from chromadb.utils import embedding_functions
 
@@ -137,14 +163,21 @@ class GlobalKnowledgeBase:
             logger.error(f"[GlobalKnowledgeBase] Search failed: {e}")
             return ""
 
-# Singleton instance
-kb_instance = GlobalKnowledgeBase()
+# Lazy singleton instance to prevent Celery fork() deadlocks
+_kb_instance = None
+
+def _get_kb_instance():
+    global _kb_instance
+    if _kb_instance is None:
+        _kb_instance = GlobalKnowledgeBase()
+    return _kb_instance
 
 def search_knowledge_base(query_text: str, top_k: int = 5) -> str:
     """
     Retrieve corporate knowledge base guidelines and past similar BRD chunks.
     """
-    guidance = kb_instance.search_similar(query_text, top_k)
+    kb = _get_kb_instance()
+    guidance = kb.search_similar(query_text, top_k)
     if not guidance:
         return ""
     
