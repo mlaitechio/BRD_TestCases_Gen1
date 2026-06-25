@@ -57,16 +57,16 @@ DEBUG = os.getenv('DEBUG', _default_debug) == 'True'
 
 _prod_url = os.getenv('PROD_URL', '').strip()
 
-if APP_ENV == 'prod':
-    _allowed = [h.strip() for h in os.getenv('ALLOWED_HOSTS', '').split(',') if h.strip() and h.strip() != '*']
-    if _prod_url:
-        _prod_host = urlparse(_prod_url).hostname
-        if _prod_host and _prod_host not in _allowed:
-            _allowed.append(_prod_host)
-    ALLOWED_HOSTS = _allowed
-else:
-    ALLOWED_HOSTS = ['*']
-
+# if APP_ENV == 'prod':
+#     _allowed = [h.strip() for h in os.getenv('ALLOWED_HOSTS', '').split(',') if h.strip() and h.strip() != '*']
+#     if _prod_url:
+#         _prod_host = urlparse(_prod_url).hostname
+#         if _prod_host and _prod_host not in _allowed:
+#             _allowed.append(_prod_host)
+#     ALLOWED_HOSTS = _allowed
+# else:
+#     ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['*']
 # Required for HTTPS termination in production behind a proxy/load balancer
 if APP_ENV == 'prod':
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
