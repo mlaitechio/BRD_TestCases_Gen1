@@ -172,7 +172,7 @@ def _get_robust_http_client() -> httpx.Client:
         http1=True,
         proxy=proxy_url if proxy_url else None,
         headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'},
-        timeout=60.0,
+        timeout=600.0,
     )
 
 
