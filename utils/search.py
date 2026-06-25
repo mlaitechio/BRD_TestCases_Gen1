@@ -46,33 +46,6 @@ try:
 except Exception:
     pass
 
-# ==============================================================================
-# FORCE UNLOCK CHROMA DB MIGRATION LOCK TO PREVENT INFINITE HANG IN CELERY
-# ==============================================================================
-try:
-    import chromadb.db.impl.sqlite
-    class NonBlockingSqliteDB(chromadb.db.impl.sqlite.SqliteDB):
-        def start(self) -> None:
-            try:
-                if hasattr(self, '_migration_lock'):
-                    self._migration_lock.acquire(timeout=1.0)
-            except Exception:
-                pass
-            super(chromadb.db.impl.sqlite.SqliteDB, self).start()
-            import sqlite3
-            self._conn = sqlite3.connect(self._db_file, timeout=10)
-            self._conn.isolation_level = None
-            try:
-                self._conn.execute("PRAGMA journal_mode=WAL")
-            except Exception:
-                pass
-            self._running = True
-
-    chromadb.db.impl.sqlite.SqliteDB = NonBlockingSqliteDB
-except Exception:
-    pass
-# ==============================================================================
-
 logger = logging.getLogger(__name__)
 
 def _get_robust_http_client() -> httpx.Client:
