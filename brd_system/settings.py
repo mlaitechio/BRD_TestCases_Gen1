@@ -128,32 +128,13 @@ WSGI_APPLICATION = 'brd_system.wsgi.application'
 # Local dev: SQLite (default)
 # Production: PostgreSQL if DB_HOST is set, otherwise safely falls back to SQLite
 
-_default_db_engine = 'postgresql' if (APP_ENV == 'prod' and os.getenv('DB_HOST')) else 'sqlite'
-_db_engine = os.getenv('DB_ENGINE', _default_db_engine)
-
-if _db_engine == 'postgresql':
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.getenv('DB_NAME', 'brd_db'),
-            'USER': os.getenv('DB_USER', 'postgres'),
-            'PASSWORD': os.getenv('DB_PASSWORD', ''),
-            'HOST': os.getenv('DB_HOST', 'localhost'),
-            'PORT': os.getenv('DB_PORT', '5432'),
-            'OPTIONS': {
-                'sslmode': os.getenv('DB_SSL_MODE', 'prefer'),
-            },
-            'CONN_MAX_AGE': 60,  # Keep connections alive for 60s (connection pooling)
-        }
+# SQLite — local development default
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
-else:
-    # SQLite — local development default
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
-    }
+}
 
 # ─── Password Validation ──────────────────────────────────────────────────────
 
@@ -222,7 +203,7 @@ REST_FRAMEWORK = {
 
 # ─── Celery ───────────────────────────────────────────────────────────────────
 
-CELERY_BROKER_URL = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/0')
+CELERY_BROKER_URL =  'redis://127.0.0.1:6379/0'
 CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6379/1'
 CELERY_CACHE_BACKEND = 'django-cache'
 CELERY_ACCEPT_CONTENT = ['json']
