@@ -163,6 +163,9 @@ def _get_robust_http_client() -> httpx.Client:
     firewalls, WAF drops, and HTTP/2 protocol disconnects.
     """
     proxy_url = os.getenv('HTTPS_PROXY', os.getenv('HTTP_PROXY', os.getenv('https_proxy', os.getenv('http_proxy', ''))))
+    if proxy_url and not proxy_url.startswith(('http://', 'https://')):
+        proxy_url = f'http://{proxy_url}'
+
     return httpx.Client(
         verify=False,
         http2=False,

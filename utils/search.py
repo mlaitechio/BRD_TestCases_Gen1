@@ -14,10 +14,24 @@ Usage:
 
 import logging
 import os
+import httpx
 import chromadb
 from chromadb.utils import embedding_functions
 
 logger = logging.getLogger(__name__)
+
+def _get_robust_http_client() -> httpx.Client:
+    proxy_url = os.getenv('HTTPS_PROXY', os.getenv('HTTP_PROXY', os.getenv('https_proxy', os.getenv('http_proxy', ''))))
+    if proxy_url and not proxy_url.startswith(('http://', 'https://')):
+        proxy_url = f'http://{proxy_url}'
+    return httpx.Client(
+        verify=False,
+        http2=False,
+        http1=True,
+        proxy=proxy_url if proxy_url else None,
+        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0'},
+        timeout=60.0,
+    )
 
 class GlobalKnowledgeBase:
     def __init__(self):
@@ -29,6 +43,8 @@ class GlobalKnowledgeBase:
         
         # Configure embedding function based on AI provider
         ai_provider = os.getenv('AI_PROVIDER', 'claude').lower()
+        http_client = _get_robust_http_client()
+        
         if ai_provider == 'azure_openai':
             api_key = os.getenv('AZURE_OPENAI_API_KEY')
             api_base = os.getenv('AZURE_OPENAI_ENDPOINT')
@@ -43,7 +59,8 @@ class GlobalKnowledgeBase:
                     api_type="azure",
                     api_version=api_version,
                     deployment_id=deployment_id,
-                    model_name=deployment_id
+                    model_name=deployment_id,
+                    http_client=http_client,
                 )
             else:
                 self.embedding_fn = None
@@ -53,7 +70,8 @@ class GlobalKnowledgeBase:
             if openai_key:
                 self.embedding_fn = embedding_functions.OpenAIEmbeddingFunction(
                     api_key=openai_key,
-                    model_name="text-embedding-3-small"
+                    model_name="text-embedding-3-large",
+                    http_client=http_client,
                 )
             else:
                 self.embedding_fn = None
