@@ -15,6 +15,9 @@ Usage:
 import logging
 import os
 import httpx
+import chromadb
+from chromadb.config import Component
+from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
 
 # ==============================================================================
 # COMPLETELY DISABLE CHROMA DB TELEMETRY & POSTHOG TO PREVENT CELERY FORK DEADLOCK
@@ -22,10 +25,13 @@ import httpx
 os.environ['ANONYMIZED_TELEMETRY'] = 'False'
 os.environ['POSTHOG_DISABLED'] = '1'
 
-class DummyTelemetry:
-    def __init__(self, *args, **kwargs): pass
-    def start(self): pass
-    def stop(self): pass
+class DummyTelemetry(Component):
+    def __init__(self, system):
+        super().__init__(system)
+    def start(self):
+        self._running = True
+    def stop(self):
+        self._running = False
     def capture(self, *args, **kwargs): pass
 
 try:
@@ -39,10 +45,33 @@ try:
     posthoganalytics.Posthog = DummyTelemetry
 except Exception:
     pass
-# ==============================================================================
 
-import chromadb
-from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
+# ==============================================================================
+# FORCE UNLOCK CHROMA DB MIGRATION LOCK TO PREVENT INFINITE HANG IN CELERY
+# ==============================================================================
+try:
+    import chromadb.db.impl.sqlite
+    class NonBlockingSqliteDB(chromadb.db.impl.sqlite.SqliteDB):
+        def start(self) -> None:
+            try:
+                if hasattr(self, '_migration_lock'):
+                    self._migration_lock.acquire(timeout=1.0)
+            except Exception:
+                pass
+            super(chromadb.db.impl.sqlite.SqliteDB, self).start()
+            import sqlite3
+            self._conn = sqlite3.connect(self._db_file, timeout=10)
+            self._conn.isolation_level = None
+            try:
+                self._conn.execute("PRAGMA journal_mode=WAL")
+            except Exception:
+                pass
+            self._running = True
+
+    chromadb.db.impl.sqlite.SqliteDB = NonBlockingSqliteDB
+except Exception:
+    pass
+# ==============================================================================
 
 logger = logging.getLogger(__name__)
 
@@ -103,9 +132,21 @@ class GlobalKnowledgeBase:
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
             'chroma_db'
         )
+        
+        # Force remove stale lock files
+        try:
+            lock_file = os.path.join(self.persist_directory, "chroma.sqlite3.lock")
+            if os.path.exists(lock_file):
+                os.remove(lock_file)
+        except Exception:
+            pass
+
         self.client = chromadb.PersistentClient(
             path=self.persist_directory,
-            settings=chromadb.config.Settings(anonymized_telemetry=False)
+            settings=chromadb.config.Settings(
+                anonymized_telemetry=False,
+                chroma_telemetry_impl="utils.search.DummyTelemetry",
+            )
         )
         
         # Configure embedding function based on AI provider
