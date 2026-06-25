@@ -21,6 +21,9 @@ except Exception:
 os.environ['PYTHONHTTPSVERIFY'] = '0'
 os.environ['CURL_CA_BUNDLE'] = ''
 os.environ['REQUESTS_CA_BUNDLE'] = ''
+os.environ['ANONYMIZED_TELEMETRY'] = 'False'
+os.environ['POSTHOG_DISABLED'] = '1'
+os.environ['LANGFUSE_DISABLED'] = '1'
 warnings.filterwarnings('ignore')
 # ==============================================================================
 

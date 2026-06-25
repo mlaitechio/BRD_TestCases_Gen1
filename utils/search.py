@@ -35,11 +35,16 @@ def _get_robust_http_client() -> httpx.Client:
 
 class GlobalKnowledgeBase:
     def __init__(self):
+        os.environ['ANONYMIZED_TELEMETRY'] = 'False'
+        os.environ['POSTHOG_DISABLED'] = '1'
         self.persist_directory = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
             'chroma_db'
         )
-        self.client = chromadb.PersistentClient(path=self.persist_directory)
+        self.client = chromadb.PersistentClient(
+            path=self.persist_directory,
+            settings=chromadb.config.Settings(anonymized_telemetry=False)
+        )
         
         # Configure embedding function based on AI provider
         ai_provider = os.getenv('AI_PROVIDER', 'claude').lower()
@@ -70,7 +75,7 @@ class GlobalKnowledgeBase:
             if openai_key:
                 self.embedding_fn = embedding_functions.OpenAIEmbeddingFunction(
                     api_key=openai_key,
-                    model_name="text-embedding-3-large",
+                    model_name="text-embedding-3-small",
                     http_client=http_client,
                 )
             else:
