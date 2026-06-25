@@ -222,7 +222,7 @@ REST_FRAMEWORK = {
 
 # ─── Celery ───────────────────────────────────────────────────────────────────
 
-CELERY_BROKER_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+CELERY_BROKER_URL = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/0')
 CELERY_RESULT_BACKEND = 'django-db'
 CELERY_CACHE_BACKEND = 'django-cache'
 CELERY_ACCEPT_CONTENT = ['json']
