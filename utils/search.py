@@ -18,6 +18,7 @@ import httpx
 import chromadb
 from chromadb.config import Component
 from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
+from overrides import override
 
 # ==============================================================================
 # COMPLETELY DISABLE CHROMA DB TELEMETRY & POSTHOG TO PREVENT CELERY FORK DEADLOCK
@@ -28,9 +29,11 @@ os.environ['POSTHOG_DISABLED'] = '1'
 class DummyTelemetry(Component):
     def __init__(self, system):
         super().__init__(system)
-    def start(self):
+    @override
+    def start(self) -> None:
         self._running = True
-    def stop(self):
+    @override
+    def stop(self) -> None:
         self._running = False
     def capture(self, *args, **kwargs): pass
 
@@ -73,6 +76,9 @@ class RobustAzureOpenAIEmbeddingFunction(EmbeddingFunction):
         )
         self.deployment_id = deployment_id
 
+    def name(self) -> str:
+        return "openai"
+
     def __call__(self, input: Documents) -> Embeddings:
         response = self.client.embeddings.create(
             model=self.deployment_id,
@@ -89,6 +95,9 @@ class RobustOpenAIEmbeddingFunction(EmbeddingFunction):
             max_retries=1,
         )
         self.model_name = model_name
+
+    def name(self) -> str:
+        return "openai"
 
     def __call__(self, input: Documents) -> Embeddings:
         response = self.client.embeddings.create(
