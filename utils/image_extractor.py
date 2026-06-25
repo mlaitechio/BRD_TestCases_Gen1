@@ -223,6 +223,21 @@ def _extract_images_from_docx(file_path: str) -> list[dict]:
 
 # ── AI Vision ─────────────────────────────────────────────────────────────────
 
+import httpx
+
+def _get_robust_http_client() -> httpx.Client:
+    proxy_url = os.getenv('HTTPS_PROXY', os.getenv('HTTP_PROXY', os.getenv('https_proxy', os.getenv('http_proxy', ''))))
+    if proxy_url and not proxy_url.startswith(('http://', 'https://')):
+        proxy_url = f'http://{proxy_url}'
+    return httpx.Client(
+        verify=False,
+        http2=False,
+        http1=True,
+        proxy=proxy_url if proxy_url else None,
+        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0'},
+        timeout=120.0,
+    )
+
 def _describe_image(image_bytes: bytes, media_type: str) -> str:
     """
     Send an image to the configured AI vision model and return a text description.
@@ -243,7 +258,11 @@ def _claude_vision(image_b64: str, media_type: str) -> str:
     """Describe image using Anthropic Claude (claude-3-5-sonnet vision)."""
     import anthropic
 
-    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
+    http_client = _get_robust_http_client()
+    client = anthropic.Anthropic(
+        api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+        http_client=http_client,
+    )
     message = client.messages.create(
         model="claude-3-5-sonnet-20241022",
         max_tokens=600,
@@ -269,13 +288,14 @@ def _claude_vision(image_b64: str, media_type: str) -> str:
 
 def _openai_vision(image_b64: str, media_type: str, use_azure: bool = False) -> str:
     """Describe image using OpenAI or Azure OpenAI GPT-4o vision."""
+    http_client = _get_robust_http_client()
     if use_azure:
         from openai import AzureOpenAI
         client = AzureOpenAI(
             api_key=os.getenv("AZURE_OPENAI_API_KEY", ""),
             api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-06-01"),
             azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", ""),
-            timeout=120.0,
+            http_client=http_client,
             max_retries=1,
         )
         model = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
@@ -283,7 +303,7 @@ def _openai_vision(image_b64: str, media_type: str, use_azure: bool = False) -> 
         from openai import OpenAI
         client = OpenAI(
             api_key=os.getenv("OPENAI_API_KEY", ""),
-            timeout=120.0,
+            http_client=http_client,
             max_retries=1,
         )
         model = "gpt-4o"
