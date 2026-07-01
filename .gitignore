@@ -1,0 +1,39 @@
+# Environments
+.env
+.venv
+venv/
+ENV/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Django
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+
+# Logs
+*.log
+db_transactions.log
+cli_outputs/
+test_output/
+*.pdf
+
+# Databases
+chroma_db/
+graphify-out/
+
+# IDEs
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
