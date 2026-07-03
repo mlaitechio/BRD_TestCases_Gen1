@@ -29,6 +29,7 @@ import logging
 import os
 import tempfile
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
@@ -87,18 +88,35 @@ def extract_and_describe_images(file_path: str) -> str:
     # Limit to MAX_IMAGES_PER_FILE
     images = images[:MAX_IMAGES_PER_FILE]
 
-    descriptions = []
-    for idx, img in enumerate(images, start=1):
-        label = img.get("label", f"Image {idx}")
+    # ✅ PARALLEL IMAGE DESCRIPTION - Process 4 images concurrently instead of sequential
+    descriptions = [None] * len(images)
+
+    def describe_image_task(idx, img):
+        label = img.get("label", f"Image {idx+1}")
         try:
             desc = _describe_image(img["data"], img["media_type"])
-            descriptions.append(f"--- {label} ---\n{desc}")
             logger.info(f"[ImageExtractor] Described {label} ({len(img['data'])} bytes)")
+            return idx, f"--- {label} ---\n{desc}"
         except Exception as exc:
             logger.warning(f"[ImageExtractor] Vision failed for {label}: {exc}")
-            descriptions.append(f"--- {label} ---\n[Vision analysis unavailable: {exc}]")
+            return idx, f"--- {label} ---\n[Vision analysis unavailable: {exc}]"
 
-    return "\n\n".join(descriptions)
+    # Run up to 4 image descriptions in parallel
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(describe_image_task, idx, img): idx
+            for idx, img in enumerate(images)
+        }
+        for future in as_completed(futures):
+            try:
+                idx, result = future.result()
+                descriptions[idx] = result
+            except Exception as exc:
+                idx = futures[future]
+                logger.error(f"[ImageExtractor] Parallel task failed for image {idx+1}: {exc}")
+                descriptions[idx] = f"--- Image {idx+1} ---\n[Vision analysis failed]"
+
+    return "\n\n".join([d for d in descriptions if d is not None])
 
 
 # ── PDF image extraction ──────────────────────────────────────────────────────
