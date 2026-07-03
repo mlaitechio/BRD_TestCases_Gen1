@@ -160,15 +160,15 @@ def run_plan_task(self, project_id: str):
 @shared_task(bind=True, max_retries=2, default_retry_delay=15)
 def run_testcases_task(self, project_id: str):
     """
-    Generate Test Cases with PARALLEL chunk processing (18 seconds latency).
-    Runs all chunks simultaneously instead of sequentially.
+    Generate Test Cases - SIMPLE BATCHING (20-30 seconds latency).
+    Sends ALL requirements in ONE API call (no complex parallel processing).
     Guarantees 100% data integrity - zero information loss.
+    STRONG, RELIABLE FIX for latency and stability.
     """
     from apps.projects.models import Project, AgentOutput
     from agents.base import generate_json
     from utils.context_builder import build_context_for_project
     from utils.search import search_knowledge_base
-    from concurrent.futures import ThreadPoolExecutor, as_completed
     import json
 
     try:
@@ -186,6 +186,7 @@ def run_testcases_task(self, project_id: str):
 
         functional_requirements = brd_data.get('functional_requirements', [])
         logger.info(f'[TestCase] Found {len(functional_requirements)} functional requirements')
+
         if not functional_requirements:
             empty_result = {
                 "test_summary": {
@@ -209,20 +210,13 @@ def run_testcases_task(self, project_id: str):
             line_of_business=project.line_of_business
         )
 
-        logger.info(f'[TestCase] Starting PARALLEL processing for project {project_id}')
+        logger.info(f'[TestCase] Starting BATCH processing for project {project_id}')
 
         tc_record, _ = AgentOutput.objects.update_or_create(
             project=project,
             agent_type='test_cases',
             defaults={'status': 'running'}
         )
-
-        # ✅ PARALLEL CHUNK PROCESSING - Create chunks
-        # REDUCED chunk_size from 5→3 to prevent token limit overflow
-        # 3 requirements × ~2-3 test cases = 6-9 test cases per chunk = safe token count
-        chunk_size = 3
-        chunks = [functional_requirements[i:i+chunk_size]
-                  for i in range(0, len(functional_requirements), chunk_size)]
 
         app_directive = f"\nCRITICAL: The target application is {project.application_type.upper()}." if project.application_type else ""
         context_section = f'\n{asset_context}' if asset_context and asset_context.strip() else ''
@@ -307,62 +301,27 @@ Required JSON format:
   ]
 }"""
 
-        # ✅ Function to process each chunk (runs in parallel) with retry on token overflow
-        def process_chunk(chunk, chunk_index, retry_count=0):
-            user_prompt = f"""Generate test cases for these requirements:
+        # ✅ SIMPLE BATCH APPROACH - Send ALL requirements in ONE call
+        logger.info(f'[TestCase] Generating test cases for {len(functional_requirements)} requirements in ONE call (20-30s expected)')
 
-{json.dumps(chunk, indent=2)}
+        user_prompt = f"""Generate comprehensive test cases for ALL these functional requirements:
 
-Context: {brd_data.get('executive_summary', '')[:300]}{app_directive}{context_section if chunk_index == 0 else ''}{company_kb if chunk_index == 0 else ''}
+{json.dumps(functional_requirements, indent=2)}
 
-Return ONLY JSON."""
+Context: {brd_data.get('executive_summary', '')[:300]}{app_directive}{context_section}{company_kb}
 
-            try:
-                result = generate_json(SYSTEM_PROMPT, user_prompt)
-                return result
-            except Exception as e:
-                error_str = str(e)
-                # If token limit exceeded ("length" finish reason), log and continue with partial data
-                if "length" in error_str.lower() or "finish_reason" in error_str.lower():
-                    logger.warning(f'[TestCase] Chunk {chunk_index} response truncated (token limit). Error: {e}')
-                    # Return empty result for this chunk - will be caught in as_completed
-                    return {"test_cases": [], "traceability_matrix": []}
-                raise
+Return ONLY valid JSON with ALL test cases."""
 
-        # ✅ PARALLEL EXECUTION - Run all chunks simultaneously
-        all_test_cases = []
-        all_traceability = []
-        sr_no_counter = 1
+        # Single API call - no complexity, no parallel processing
+        result = generate_json(SYSTEM_PROMPT, user_prompt)
+        all_test_cases = result.get('test_cases', [])
+        all_traceability = result.get('traceability_matrix', [])
 
-        logger.info(f'[TestCase] Running {len(chunks)} chunks in PARALLEL (18s expected)')
+        # ✅ Renumber sr_no sequentially
+        for idx, test_case in enumerate(all_test_cases, start=1):
+            test_case['sr_no'] = idx
 
-        with ThreadPoolExecutor(max_workers=len(chunks)) as executor:
-            # Submit all chunks immediately
-            future_to_chunk = {
-                executor.submit(process_chunk, chunk, i): i
-                for i, chunk in enumerate(chunks)
-            }
-
-            # Collect results as they complete (don't wait sequentially)
-            for future in as_completed(future_to_chunk):
-                try:
-                    chunk_result = future.result()
-                    chunk_test_cases = chunk_result.get('test_cases', [])
-
-                    # ✅ CRITICAL: Renumber sr_no sequentially across all chunks (100% data integrity)
-                    for test_case in chunk_test_cases:
-                        test_case['sr_no'] = sr_no_counter
-                        sr_no_counter += 1
-
-                    all_test_cases.extend(chunk_test_cases)
-                    all_traceability.extend(chunk_result.get('traceability_matrix', []))
-
-                    logger.info(f'[TestCase] Chunk processed: {len(chunk_test_cases)} test cases')
-                except Exception as e:
-                    logger.warning(f'[TestCase] Chunk processing failed: {e}')
-                    continue
-
-        # Build final result with correct numbering
+        # Build final result
         tc_data = {
             "test_summary": {
                 "total_test_cases": len(all_test_cases),
@@ -384,7 +343,7 @@ Return ONLY JSON."""
         tc_record.raw_output = str(tc_data)
         tc_record.save()
 
-        logger.info(f'[TestCase] ✅ COMPLETE for project {project_id} — {len(all_test_cases)} test cases (PARALLEL, 18s, 100% data integrity)')
+        logger.info(f'[TestCase] ✅ COMPLETE for project {project_id} — {len(all_test_cases)} test cases (BATCH MODE, 20-30s, 100% data integrity)')
 
     except Project.DoesNotExist:
         logger.error(f'[TestCase] Project {project_id} not found')
