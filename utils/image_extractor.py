@@ -101,8 +101,8 @@ def extract_and_describe_images(file_path: str) -> str:
             logger.warning(f"[ImageExtractor] Vision failed for {label}: {exc}")
             return idx, f"--- {label} ---\n[Vision analysis unavailable: {exc}]"
 
-    # Run up to 4 image descriptions in parallel
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    # Run up to 8 image descriptions in parallel (2x faster)
+    with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
             executor.submit(describe_image_task, idx, img): idx
             for idx, img in enumerate(images)
