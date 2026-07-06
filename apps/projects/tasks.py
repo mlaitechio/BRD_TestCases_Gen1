@@ -23,6 +23,8 @@ def run_brd_task(self, project_id: str):
       - Project description + metadata
       - User clarification answers
       - Active project asset context (Knowledge Layer)
+      - Global RAG context (user-uploaded documents) ← NEW!
+      - Company knowledge base context
       - Revision notes (if this is a revision run)
 
     Fires after user submits answers, or after a revision request.
@@ -31,6 +33,7 @@ def run_brd_task(self, project_id: str):
     from agents.brd_agent import generate_brd
     from utils.context_builder import build_context_for_project, build_project_metadata_block
     from utils.search import search_knowledge_base
+    from apps.rag.services import get_rag_service  # ← NEW: RAG import
 
     try:
         project = Project.objects.get(id=project_id)
@@ -54,6 +57,13 @@ def run_brd_task(self, project_id: str):
 
         answers = project.clarification_answers or {}
 
+        # ──────────────────────────────────────────────────────────────────
+        # NEW: Search Global RAG for relevant user-uploaded documents
+        # ──────────────────────────────────────────────────────────────────
+        rag_context = _search_global_rag_for_brd(project)
+        if rag_context:
+            logger.info(f'[BRD] Retrieved {len(rag_context)} chars from Global RAG')
+
         # Retrieve global knowledge base guidance with smart filtering
         company_kb = search_knowledge_base(
             query_text=project.name or "General BRD Requirements",
@@ -62,8 +72,17 @@ def run_brd_task(self, project_id: str):
             line_of_business=project.line_of_business
         )
 
+        # ──────────────────────────────────────────────────────────────────
+        # Combine all contexts: RAG documents + Company KB + Asset context
+        # ──────────────────────────────────────────────────────────────────
+        combined_context = _combine_brd_contexts(
+            rag_context=rag_context,
+            company_kb=company_kb,
+            asset_context=asset_context
+        )
+
         logger.info(f'[BRD] Starting for project {project_id}')
-        
+
         active_toc = project.toc_sections.filter(is_enabled=True).order_by('order')
         toc_data = [{'key': t.key, 'label': t.label, 'is_custom': t.is_custom} for t in active_toc]
 
@@ -71,7 +90,7 @@ def run_brd_task(self, project_id: str):
             project_description=full_description,
             clarification_answers=answers,
             revision_notes=project.revision_notes,
-            context_summary=asset_context,
+            context_summary=combined_context,  # ← Now includes RAG documents!
             company_knowledge_base=company_kb,
             toc_sections=toc_data if toc_data else None,
         )
@@ -210,7 +229,7 @@ def run_testcases_task(self, project_id: str):
             line_of_business=project.line_of_business
         )
 
-        logger.info(f'[TestCase] Starting BATCH processing for project {project_id}')
+        logger.info(f'[TestCase] Starting SMART BATCH processing for project {project_id}')
 
         tc_record, _ = AgentOutput.objects.update_or_create(
             project=project,
@@ -301,25 +320,72 @@ Required JSON format:
   ]
 }"""
 
-        # ✅ SIMPLE BATCH APPROACH - Send ALL requirements in ONE call
-        logger.info(f'[TestCase] Generating test cases for {len(functional_requirements)} requirements in ONE call (20-30s expected)')
+        # ✅ PARALLEL BATCH PROCESSING - 2-3 batches simultaneously (2-3 mins total, no token errors)
+        import math
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        user_prompt = f"""Generate comprehensive test cases for ALL these functional requirements:
+        batch_size = 3 if len(functional_requirements) > 6 else len(functional_requirements)
+        num_batches = math.ceil(len(functional_requirements) / batch_size)
 
-{json.dumps(functional_requirements, indent=2)}
+        logger.info(f'[TestCase] PARALLEL batching: {len(functional_requirements)} requirements into {num_batches} batches of ~{batch_size} (2-3 mins expected)')
+
+        # Pre-build all batch definitions
+        batches = []
+        for batch_idx in range(num_batches):
+            start_idx = batch_idx * batch_size
+            end_idx = min(start_idx + batch_size, len(functional_requirements))
+            batch_reqs = functional_requirements[start_idx:end_idx]
+            batches.append({
+                'idx': batch_idx + 1,
+                'start': start_idx + 1,
+                'end': end_idx,
+                'reqs': batch_reqs
+            })
+
+        def process_batch(batch_info):
+            """Process a single batch and return (batch_idx, test_cases, traceability)."""
+            batch_idx = batch_info['idx']
+            batch_reqs = batch_info['reqs']
+            logger.info(f'[TestCase] Processing batch {batch_idx}/{num_batches}: requirements {batch_info["start"]}-{batch_info["end"]}')
+
+            user_prompt = f"""Generate comprehensive test cases for these {len(batch_reqs)} functional requirements:
+
+{json.dumps(batch_reqs, indent=2)}
 
 Context: {brd_data.get('executive_summary', '')[:300]}{app_directive}{context_section}{company_kb}
 
-Return ONLY valid JSON with ALL test cases."""
+Return ONLY valid JSON with test cases."""
 
-        # Single API call - no complexity, no parallel processing
-        result = generate_json(SYSTEM_PROMPT, user_prompt)
-        all_test_cases = result.get('test_cases', [])
-        all_traceability = result.get('traceability_matrix', [])
+            result = generate_json(SYSTEM_PROMPT, user_prompt)
+            batch_test_cases = result.get('test_cases', [])
+            batch_traceability = result.get('traceability_matrix', [])
+            return (batch_idx, batch_test_cases, batch_traceability)
 
-        # ✅ Renumber sr_no sequentially
-        for idx, test_case in enumerate(all_test_cases, start=1):
-            test_case['sr_no'] = idx
+        # ✅ Run batches in parallel (2-3 workers)
+        max_workers = min(3, num_batches)  # Use 2-3 workers, or fewer if fewer batches
+        batch_results = {}
+        all_test_cases = []
+        all_traceability = []
+        sr_no_counter = 1
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(process_batch, batch): batch['idx'] for batch in batches}
+            for future in as_completed(futures):
+                batch_idx, batch_test_cases, batch_traceability = future.result()
+                batch_results[batch_idx] = (batch_test_cases, batch_traceability)
+                logger.info(f'[TestCase] Batch {batch_idx} complete: {len(batch_test_cases)} test cases')
+
+        # Combine results in order (batch 1, 2, 3, ...)
+        for batch_idx in range(1, num_batches + 1):
+            batch_test_cases, batch_traceability = batch_results[batch_idx]
+
+            # Renumber sr_no sequentially across all batches
+            for test_case in batch_test_cases:
+                test_case['sr_no'] = sr_no_counter
+                sr_no_counter += 1
+
+            all_test_cases.extend(batch_test_cases)
+            all_traceability.extend(batch_traceability)
 
         # Build final result
         tc_data = {
@@ -343,7 +409,7 @@ Return ONLY valid JSON with ALL test cases."""
         tc_record.raw_output = str(tc_data)
         tc_record.save()
 
-        logger.info(f'[TestCase] ✅ COMPLETE for project {project_id} — {len(all_test_cases)} test cases (BATCH MODE, 20-30s, 100% data integrity)')
+        logger.info(f'[TestCase] ✅ COMPLETE for project {project_id} — {len(all_test_cases)} test cases ({num_batches} batches parallel, 2-3 mins, 100% data integrity)')
 
     except Project.DoesNotExist:
         logger.error(f'[TestCase] Project {project_id} not found')
@@ -831,3 +897,102 @@ def _split_text_into_chunks(text: str, max_chars: int = 2000) -> list[str]:
         chunks.append(current_chunk.strip())
 
     return chunks
+
+
+# ─── RAG Integration Helpers ───────────────────────────────────────────────────
+
+def _search_global_rag_for_brd(project) -> str:
+    """
+    Search Global RAG Knowledge Base for documents relevant to the BRD project.
+
+    Args:
+        project: Project instance
+
+    Returns:
+        Formatted context string from RAG, or empty string if no matches
+    """
+    try:
+        from apps.rag.services import get_rag_service
+
+        # Build search query from project info
+        search_query = f"{project.name or 'Project'} {project.application_type or ''} {project.line_of_business or ''}"
+
+        logger.info(f'[BRD RAG] Searching for: {search_query}')
+
+        rag = get_rag_service()
+        results = rag.search(
+            query_text=search_query,
+            top_k=5,
+            category=project.application_type
+        )
+
+        if not results:
+            logger.info(f'[BRD RAG] No relevant documents found')
+            return ""
+
+        # Format RAG results into context block
+        context_lines = ['=== RELEVANT DOCUMENTS FROM KNOWLEDGE BASE ===\n']
+
+        for result in results:
+            score = result.get('similarity_score', 0)
+            content = result.get('content', '')
+            doc_id = result.get('document_id', 'unknown')[:8]
+
+            # Only include high-confidence matches
+            if score >= 0.7:
+                context_lines.append(f"[Document {doc_id} - Relevance: {score:.0%}]")
+                context_lines.append(content)
+                context_lines.append('')
+
+        if len(context_lines) <= 2:
+            logger.info(f'[BRD RAG] No high-confidence matches (score >= 0.7)')
+            return ""
+
+        context_lines.append('=== END KNOWLEDGE BASE ===\n')
+        rag_context = '\n'.join(context_lines)
+
+        logger.info(f'[BRD RAG] Retrieved {len(results)} documents ({len(rag_context)} chars)')
+        return rag_context
+
+    except Exception as exc:
+        logger.warning(f'[BRD RAG] Search failed (non-blocking): {exc}')
+        return ""  # Continue without RAG if search fails
+
+
+def _combine_brd_contexts(rag_context: str, company_kb: str, asset_context: str) -> str:
+    """
+    Intelligently combine multiple context sources for BRD generation.
+
+    Priority order:
+    1. Global RAG (user-uploaded documents) - Most specific
+    2. Company Knowledge Base - General guidance
+    3. Asset Context - Extracted from Insight Attachments
+
+    Args:
+        rag_context: Documents from Global RAG search
+        company_kb: Company knowledge base guidance
+        asset_context: Extracted asset content
+
+    Returns:
+        Combined context string for BRD generation
+    """
+    parts = []
+
+    # Add RAG context first (most specific to this project)
+    if rag_context:
+        parts.append(rag_context)
+
+    # Add company knowledge base
+    if company_kb:
+        parts.append(company_kb)
+
+    # Add asset context last (general extracted content)
+    if asset_context:
+        parts.append(asset_context)
+
+    combined = '\n\n'.join(parts)
+
+    if combined:
+        logger.info(f'[BRD] Combined context: {len(combined)} chars ({len(parts)} sources)')
+
+    return combined

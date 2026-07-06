@@ -85,6 +85,7 @@ INSTALLED_APPS = [
     'django_celery_results',
     'apps.projects',
     'apps.authentication',          # CyberArk OAuth2/OIDC authentication
+    'apps.rag',                     # Global RAG Knowledge Base
 ]
 
 # ─── Middleware ───────────────────────────────────────────────────────────────

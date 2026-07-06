@@ -27,6 +27,9 @@ main_patterns = [
     # ── BRD Project APIs ───────────────────────────────────────────────
     path('api/projects/', include('apps.projects.urls')),
 
+    # ── RAG Knowledge Base APIs ────────────────────────────────────────
+    path('api/rag/', include('apps.rag.urls')),
+
     # Explicit API endpoint BEFORE the catch-all
     path('api/', ChatAPIView.as_view(), name='chat_api'),
 
