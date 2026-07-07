@@ -922,13 +922,19 @@ def _search_global_rag_for_brd(project) -> str:
         rag = get_rag_service()
         results = rag.search(
             query_text=search_query,
-            top_k=5,
-            category=project.application_type
+            top_k=5
         )
 
         if not results:
-            logger.info(f'[BRD RAG] No relevant documents found')
+            logger.info(f'[BRD RAG] No relevant documents found (ChromaDB returned 0 results)')
+            logger.info(f'[BRD RAG] DEBUG: Collection has {len(rag.collection.get().get("ids", []))} documents')
             return ""
+
+        logger.info(f'[BRD RAG] Found {len(results)} documents from ChromaDB')
+
+        # Log all scores for debugging
+        for i, r in enumerate(results):
+            logger.info(f'[BRD RAG DEBUG] Result {i+1}: score={r.get("similarity_score", 0):.3f}, doc_id={r.get("document_id", "unknown")[:8]}')
 
         # Format RAG results into context block
         context_lines = ['=== RELEVANT DOCUMENTS FROM KNOWLEDGE BASE ===\n']
@@ -938,15 +944,27 @@ def _search_global_rag_for_brd(project) -> str:
             content = result.get('content', '')
             doc_id = result.get('document_id', 'unknown')[:8]
 
-            # Only include high-confidence matches
-            if score >= 0.7:
+            # Only include relevant matches (lowered threshold for better retrieval)
+            if score >= 0.5:
                 context_lines.append(f"[Document {doc_id} - Relevance: {score:.0%}]")
                 context_lines.append(content)
                 context_lines.append('')
 
         if len(context_lines) <= 2:
-            logger.info(f'[BRD RAG] No high-confidence matches (score >= 0.7)')
-            return ""
+            # If no high-confidence matches, return all results regardless of score
+            if results:
+                logger.info(f'[BRD RAG] No high-confidence matches, including low-score results')
+                context_lines = ['=== RELATED DOCUMENTS FROM KNOWLEDGE BASE ===\n']
+                for result in results[:3]:  # Take top 3 regardless of score
+                    score = result.get('similarity_score', 0)
+                    content = result.get('content', '')
+                    doc_id = result.get('document_id', 'unknown')[:8]
+                    context_lines.append(f"[Document {doc_id} - Relevance: {score:.0%}]")
+                    context_lines.append(content)
+                    context_lines.append('')
+            else:
+                logger.info(f'[BRD RAG] No documents found in ChromaDB')
+                return ""
 
         context_lines.append('=== END KNOWLEDGE BASE ===\n')
         rag_context = '\n'.join(context_lines)
