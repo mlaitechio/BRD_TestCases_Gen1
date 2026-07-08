@@ -94,3 +94,73 @@ class CyberArkIsAuthenticated(BasePermission):
                 request.auth_payload = payload
 
         return payload is not None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Role-Based Access Control Decorators
+# ──────────────────────────────────────────────────────────────────────────────
+
+def require_admin(view_func):
+    """Decorator to require admin role"""
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return JsonResponse({'error': 'Not authenticated'}, status=401)
+
+        try:
+            profile = request.user.profile
+            if profile.role == 'admin' and profile.is_active:
+                return view_func(request, *args, **kwargs)
+            else:
+                return JsonResponse({'error': 'Admin access required'}, status=403)
+        except AttributeError:
+            return JsonResponse({'error': 'User profile not found'}, status=400)
+
+    return wrapper
+
+
+def require_user(view_func):
+    """Decorator to require authenticated user (any role)"""
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return JsonResponse({'error': 'Not authenticated'}, status=401)
+
+        try:
+            profile = request.user.profile
+            if profile.is_active:
+                return view_func(request, *args, **kwargs)
+            else:
+                return JsonResponse({'error': 'User account is inactive'}, status=403)
+        except AttributeError:
+            return JsonResponse({'error': 'User profile not found'}, status=400)
+
+    return wrapper
+
+
+def check_role(required_role='user'):
+    """
+    Flexible decorator to check specific role.
+    Usage: @check_role('admin') or @check_role('user')
+    """
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapper(request, *args, **kwargs):
+            if not request.user.is_authenticated:
+                return JsonResponse({'error': 'Not authenticated'}, status=401)
+
+            try:
+                profile = request.user.profile
+                if profile.role == required_role and profile.is_active:
+                    return view_func(request, *args, **kwargs)
+                else:
+                    return JsonResponse({
+                        'error': f'{required_role.capitalize()} access required',
+                        'required_role': required_role,
+                        'user_role': profile.role
+                    }, status=403)
+            except AttributeError:
+                return JsonResponse({'error': 'User profile not found'}, status=400)
+
+        return wrapper
+    return decorator

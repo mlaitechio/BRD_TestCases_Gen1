@@ -3,6 +3,37 @@
 ## Overview
 The Global RAG API provides endpoints to upload, manage, and search documents in the knowledge base.
 
+Username: admin
+Email: admin@test.com
+Password: admin123
+Password (again): admin123
+Superuser created successfully.
+
+
+http://localhost:8000/chatgpt/admin/
+
+
+
+
+========================================
+RAG API ENDPOINTS
+========================================
+
+POST   /api/rag/documents/                    - Upload document
+GET    /api/rag/documents/                    - List all documents
+GET    /api/rag/documents/{id}/               - Get document details
+DELETE /api/rag/documents/{id}/               - Delete document
+GET    /api/rag/documents/{id}/status/        - Check indexing status
+POST   /api/rag/documents/{id}/reindex/       - Reindex document
+POST   /api/rag/search/                       - Search knowledge base
+GET    /api/rag/stats/                        - Get RAG statistics
+
+Base URL: http://localhost:8000/api/rag/
+
+Documentation: See above for request/response formats andgo through this for clear understanding
+========================================
+
+
 ---
 
 ## Base URL

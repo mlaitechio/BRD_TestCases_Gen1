@@ -297,3 +297,158 @@ class UserView(View):
         except Exception as exc:
             logger.error("Error in UserView: %s", exc)
             return JsonResponse({"error": "Internal server error"}, status=500)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Role-Based Test Views (for testing & frontend development)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@method_decorator(csrf_exempt, name="dispatch")
+class GetUserRoleView(View):
+    """
+    GET /api/user/role
+
+    Get current user's role and profile info.
+    Returns user info with role (admin/user).
+    """
+
+    def get(self, request):
+        if not request.user.is_authenticated:
+            return JsonResponse({'authenticated': False, 'error': 'Not logged in'}, status=401)
+
+        try:
+            profile = request.user.profile
+            return JsonResponse({
+                'authenticated': True,
+                'username': request.user.username,
+                'email': request.user.email,
+                'role': profile.role,
+                'is_active': profile.is_active,
+                'is_admin': profile.role == 'admin',
+                'created_at': profile.created_at.isoformat()
+            }, status=200)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=400)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class TestAdminAccessView(View):
+    """
+    GET /api/test/admin-access
+
+    Test endpoint - only accessible to admin users.
+    Returns success if user is admin, error otherwise.
+    """
+
+    def get(self, request):
+        if not request.user.is_authenticated:
+            return JsonResponse({'error': 'Not authenticated'}, status=401)
+
+        try:
+            profile = request.user.profile
+            if profile.role == 'admin' and profile.is_active:
+                return JsonResponse({
+                    'access': 'granted',
+                    'message': 'Welcome Admin!',
+                    'username': request.user.username,
+                    'role': profile.role
+                }, status=200)
+            else:
+                return JsonResponse({
+                    'access': 'denied',
+                    'message': 'Admin access required',
+                    'user_role': profile.role
+                }, status=403)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=400)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class TestUserAccessView(View):
+    """
+    GET /api/test/user-access
+
+    Test endpoint - accessible to any authenticated user.
+    Returns success if user is active, error otherwise.
+    """
+
+    def get(self, request):
+        if not request.user.is_authenticated:
+            return JsonResponse({'error': 'Not authenticated'}, status=401)
+
+        try:
+            profile = request.user.profile
+            if profile.is_active:
+                return JsonResponse({
+                    'access': 'granted',
+                    'message': 'Welcome User!',
+                    'username': request.user.username,
+                    'role': profile.role
+                }, status=200)
+            else:
+                return JsonResponse({
+                    'access': 'denied',
+                    'message': 'User account is inactive'
+                }, status=403)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=400)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class TestLoginView(View):
+    """
+    POST /api/test/login
+
+    Simple test login endpoint for development/testing.
+    Logs in user and returns their role info.
+
+    Request body:
+        {"username": "admin_test", "password": "admin123"}
+
+    Response:
+        {"success": true, "username": "admin_test", "role": "admin", "message": "Login successful"}
+    """
+
+    def post(self, request):
+        try:
+            from django.contrib.auth import authenticate, login
+
+            data = request.POST or {}
+            username = data.get('username') or request.GET.get('username')
+            password = data.get('password') or request.GET.get('password')
+
+            # Try JSON if POST data empty
+            if not username or not password:
+                try:
+                    import json
+                    body = json.loads(request.body)
+                    username = body.get('username')
+                    password = body.get('password')
+                except:
+                    pass
+
+            if not username or not password:
+                return JsonResponse({'error': 'Username and password required'}, status=400)
+
+            # Authenticate user
+            user = authenticate(request, username=username, password=password)
+            if user is None:
+                return JsonResponse({'error': 'Invalid username or password'}, status=401)
+
+            # Login user
+            login(request, user)
+
+            # Get user profile
+            profile = user.profile
+            return JsonResponse({
+                'success': True,
+                'message': 'Login successful',
+                'username': user.username,
+                'email': user.email,
+                'role': profile.role,
+                'is_admin': profile.role == 'admin'
+            }, status=200)
+
+        except Exception as e:
+            logger.error(f"Test login error: {str(e)}")
+            return JsonResponse({'error': str(e)}, status=500)

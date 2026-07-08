@@ -16,6 +16,10 @@ from .views import (
     LogoutView,
     UserView,
     VerifyAuthView,
+    GetUserRoleView,
+    TestAdminAccessView,
+    TestUserAccessView,
+    TestLoginView,
 )
 
 # Auth flow routes — mounted at /auth/ via brd_system/urls.py
@@ -29,6 +33,10 @@ auth_urlpatterns = [
 api_urlpatterns = [
     path("verify_auth", VerifyAuthView.as_view(), name="verify-auth"),
     path("user", UserView.as_view(), name="current-user"),
+    path("user/role", GetUserRoleView.as_view(), name="user-role"),
+    path("test/login", TestLoginView.as_view(), name="test-login"),
+    path("test/admin-access", TestAdminAccessView.as_view(), name="test-admin"),
+    path("test/user-access", TestUserAccessView.as_view(), name="test-user"),
 ]
 
 # Combined — used when including this module directly

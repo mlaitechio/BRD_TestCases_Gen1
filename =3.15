@@ -1,0 +1,26 @@
+WARNING: Ignoring invalid distribution -atplotlib (c:\users\dinesh kumar\appdata\local\programs\python\python310\lib\site-packages)
+WARNING: Ignoring invalid distribution -penai (c:\users\dinesh kumar\appdata\local\programs\python\python310\lib\site-packages)
+Collecting djangorestframework
+  Using cached djangorestframework-3.17.1-py3-none-any.whl.metadata (7.9 kB)
+Collecting django>=4.2 (from djangorestframework)
+  Downloading django-5.2.16-py3-none-any.whl.metadata (4.1 kB)
+Collecting asgiref>=3.8.1 (from django>=4.2->djangorestframework)
+  Using cached asgiref-3.11.1-py3-none-any.whl.metadata (9.3 kB)
+Requirement already satisfied: sqlparse>=0.3.1 in c:\users\dinesh kumar\appdata\local\programs\python\python310\lib\site-packages (from django>=4.2->djangorestframework) (0.4.3)
+Requirement already satisfied: tzdata in c:\users\dinesh kumar\appdata\local\programs\python\python310\lib\site-packages (from django>=4.2->djangorestframework) (2025.2)
+Requirement already satisfied: typing_extensions>=4 in c:\users\dinesh kumar\appdata\local\programs\python\python310\lib\site-packages (from asgiref>=3.8.1->django>=4.2->djangorestframework) (4.14.1)
+Using cached djangorestframework-3.17.1-py3-none-any.whl (898 kB)
+Downloading django-5.2.16-py3-none-any.whl (8.3 MB)
+   ---------------------------------------- 8.3/8.3 MB 6.6 MB/s  0:00:01
+Using cached asgiref-3.11.1-py3-none-any.whl (24 kB)
+WARNING: Ignoring invalid distribution -atplotlib (c:\users\dinesh kumar\appdata\local\programs\python\python310\lib\site-packages)
+WARNING: Ignoring invalid distribution -penai (c:\users\dinesh kumar\appdata\local\programs\python\python310\lib\site-packages)
+Installing collected packages: asgiref, django, djangorestframework
+  Attempting uninstall: asgiref
+    Found existing installation: asgiref 3.6.0
+    Uninstalling asgiref-3.6.0:
+      Successfully uninstalled asgiref-3.6.0
+  Attempting uninstall: django
+    Found existing installation: Django 3.0
+    Uninstalling Django-3.0:
+      Successfully uninstalled Django-3.0

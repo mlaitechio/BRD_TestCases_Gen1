@@ -10,6 +10,10 @@ from apps.authentication.views import (
     LogoutView,
     VerifyAuthView,
     UserView,
+    GetUserRoleView,
+    TestAdminAccessView,
+    TestUserAccessView,
+    TestLoginView,
 )
 
 main_patterns = [
@@ -23,12 +27,19 @@ main_patterns = [
     # ── Auth API ──────────────────────────────────────────────────────
     path('api/verify_auth', VerifyAuthView.as_view(), name='verify-auth'),
     path('api/user',        UserView.as_view(),        name='current-user'),
+    path('api/user/role',   GetUserRoleView.as_view(), name='user-role'),
+    path('api/test/login',  TestLoginView.as_view(),   name='test-login'),
+    path('api/test/admin-access', TestAdminAccessView.as_view(), name='test-admin'),
+    path('api/test/user-access',  TestUserAccessView.as_view(),  name='test-user'),
 
     # ── BRD Project APIs ───────────────────────────────────────────────
     path('api/projects/', include('apps.projects.urls')),
 
     # ── RAG Knowledge Base APIs ────────────────────────────────────────
     path('api/rag/', include('apps.rag.urls')),
+
+    # ── AI Chat & Search APIs ──────────────────────────────────────────
+    path('api/chat/', include('apps.ai_chat.urls')),
 
     # Explicit API endpoint BEFORE the catch-all
     path('api/', ChatAPIView.as_view(), name='chat_api'),

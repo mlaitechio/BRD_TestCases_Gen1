@@ -86,6 +86,7 @@ INSTALLED_APPS = [
     'apps.projects',
     'apps.authentication',          # CyberArk OAuth2/OIDC authentication
     'apps.rag',                     # Global RAG Knowledge Base
+    'apps.ai_chat',                 # General AI Chat & Search
 ]
 
 # ─── Middleware ───────────────────────────────────────────────────────────────
