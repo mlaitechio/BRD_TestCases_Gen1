@@ -33,7 +33,7 @@ def run_brd_task(self, project_id: str):
     from agents.brd_agent import generate_brd
     from utils.context_builder import build_context_for_project, build_project_metadata_block
     from utils.search import search_knowledge_base
-    from apps.rag.services import get_rag_service  # ← NEW: RAG import
+    # from apps.rag.services import get_rag_service  # ← NEW: RAG import
 
     try:
         project = Project.objects.get(id=project_id)
@@ -756,261 +756,261 @@ def run_document_chat_edit_task(self, project_id: str, document_type: str, instr
 
 # ─── Task: RAG Indexing ────────────────────────────────────────────
 
-@shared_task(bind=True, max_retries=2, default_retry_delay=10)
-def run_rag_indexing_task(self, output_id: str):
-    """
-    Index an AgentOutput to the RAG knowledge base (ChromaDB).
+# @shared_task(bind=True, max_retries=2, default_retry_delay=10)
+# def run_rag_indexing_task(self, output_id: str):
+#     """
+#     Index an AgentOutput to the RAG knowledge base (ChromaDB).
 
-    Called async after BRD generation completes.
-    Splits the structured output into chunks, generates embeddings, stores in ChromaDB.
-    """
-    from apps.projects.models import AgentOutput, Project
-    from utils.search import _get_kb_instance
-    from django.utils import timezone
-    import json
+#     Called async after BRD generation completes.
+#     Splits the structured output into chunks, generates embeddings, stores in ChromaDB.
+#     """
+#     from apps.projects.models import AgentOutput, Project
+#     from utils.search import _get_kb_instance
+#     from django.utils import timezone
+#     import json
 
-    try:
-        output = AgentOutput.objects.get(id=output_id)
-    except AgentOutput.DoesNotExist:
-        logger.error(f'[RAGIndex] AgentOutput {output_id} not found')
-        return
+#     try:
+#         output = AgentOutput.objects.get(id=output_id)
+#     except AgentOutput.DoesNotExist:
+#         logger.error(f'[RAGIndex] AgentOutput {output_id} not found')
+#         return
 
-    # Only index complete BRD outputs
-    if output.agent_type != 'brd' or output.status != 'complete' or not output.structured_output:
-        logger.warning(f'[RAGIndex] Skipping {output.agent_type} (status: {output.status})')
-        return
+#     # Only index complete BRD outputs
+#     if output.agent_type != 'brd' or output.status != 'complete' or not output.structured_output:
+#         logger.warning(f'[RAGIndex] Skipping {output.agent_type} (status: {output.status})')
+#         return
 
-    try:
-        kb = _get_kb_instance()
-        project = output.project
-        brd_data = output.structured_output
+#     try:
+#         kb = _get_kb_instance()
+#         project = output.project
+#         brd_data = output.structured_output
 
-        # Split BRD into chunks by section
-        chunks = _chunk_brd_document(brd_data, project)
+#         # Split BRD into chunks by section
+#         chunks = _chunk_brd_document(brd_data, project)
 
-        if not chunks:
-            logger.warning(f'[RAGIndex] No chunks generated for project {project.id}')
-            return
+#         if not chunks:
+#             logger.warning(f'[RAGIndex] No chunks generated for project {project.id}')
+#             return
 
-        # Store chunks in ChromaDB
-        kb.add_document_chunks(f'brd_{project.id}', chunks)
+#         # Store chunks in ChromaDB
+#         kb.add_document_chunks(f'brd_{project.id}', chunks)
 
-        # Mark as indexed
-        output.is_indexed = True
-        output.rag_chunk_count = len(chunks)
-        output.rag_indexed_at = timezone.now()
-        output.save(update_fields=['is_indexed', 'rag_chunk_count', 'rag_indexed_at', 'updated_at'])
+#         # Mark as indexed
+#         output.is_indexed = True
+#         output.rag_chunk_count = len(chunks)
+#         output.rag_indexed_at = timezone.now()
+#         output.save(update_fields=['is_indexed', 'rag_chunk_count', 'rag_indexed_at', 'updated_at'])
 
-        logger.info(f'[RAGIndex] Indexed BRD for project {project.id} — {len(chunks)} chunks stored')
+#         logger.info(f'[RAGIndex] Indexed BRD for project {project.id} — {len(chunks)} chunks stored')
 
-    except Exception as exc:
-        logger.error(f'[RAGIndex] Failed to index output {output_id}: {exc}')
-        raise self.retry(exc=exc)
-
-
-def _chunk_brd_document(brd_data: dict, project) -> list:
-    """
-    Split BRD JSON into chunks suitable for embedding and storage.
-
-    Returns list of dicts: [{'id': '...', 'text': '...', 'metadata': {...}}, ...]
-    """
-    chunks = []
-    chunk_id_counter = 0
-
-    # Metadata common to all chunks
-    base_metadata = {
-        'source': project.name or f'Project {str(project.id)[:8]}',
-        'project_id': str(project.id),
-        'application_type': project.application_type or 'custom',
-        'line_of_business': project.line_of_business or 'General',
-        'date': str(project.created_at.date()),
-    }
-
-    # Extract key sections from BRD
-    sections_to_chunk = {
-        'executive_summary': brd_data.get('executive_summary', ''),
-        'project_scope': _stringify_section(brd_data.get('project_scope', {})),
-        'business_objectives': _stringify_section(brd_data.get('business_objectives', [])),
-        'functional_requirements': _stringify_section(brd_data.get('functional_requirements', [])),
-        'non_functional_requirements': _stringify_section(brd_data.get('non_functional_requirements', [])),
-        'assumptions_and_dependencies': _stringify_section(brd_data.get('assumptions_and_dependencies', {})),
-        'risks_and_mitigations': _stringify_section(brd_data.get('risks_and_mitigations', [])),
-    }
-
-    # Create chunks per section
-    for section_name, section_content in sections_to_chunk.items():
-        if not section_content or (isinstance(section_content, str) and len(section_content.strip()) < 50):
-            continue
-
-        # Split long sections into multiple chunks (~500 tokens ≈ 2000 chars)
-        section_chunks = _split_text_into_chunks(section_content, max_chars=2000)
-
-        for sub_chunk in section_chunks:
-            chunk_id = f'brd_{project.id}_sec_{section_name}_{chunk_id_counter}'
-            chunk_id_counter += 1
-
-            metadata = {**base_metadata, 'section': section_name}
-
-            chunks.append({
-                'id': chunk_id,
-                'text': sub_chunk,
-                'metadata': metadata,
-            })
-
-    return chunks
+#     except Exception as exc:
+#         logger.error(f'[RAGIndex] Failed to index output {output_id}: {exc}')
+#         raise self.retry(exc=exc)
 
 
-def _stringify_section(data) -> str:
-    """Convert BRD section (dict or list) to readable string."""
-    import json
-    if isinstance(data, dict):
-        return json.dumps(data, indent=2)
-    elif isinstance(data, list):
-        return '\n'.join(
-            json.dumps(item, indent=2) if isinstance(item, dict) else str(item)
-            for item in data
-        )
-    else:
-        return str(data)
+# def _chunk_brd_document(brd_data: dict, project) -> list:
+#     """
+#     Split BRD JSON into chunks suitable for embedding and storage.
+
+#     Returns list of dicts: [{'id': '...', 'text': '...', 'metadata': {...}}, ...]
+#     """
+#     chunks = []
+#     chunk_id_counter = 0
+
+#     # Metadata common to all chunks
+#     base_metadata = {
+#         'source': project.name or f'Project {str(project.id)[:8]}',
+#         'project_id': str(project.id),
+#         'application_type': project.application_type or 'custom',
+#         'line_of_business': project.line_of_business or 'General',
+#         'date': str(project.created_at.date()),
+#     }
+
+#     # Extract key sections from BRD
+#     sections_to_chunk = {
+#         'executive_summary': brd_data.get('executive_summary', ''),
+#         'project_scope': _stringify_section(brd_data.get('project_scope', {})),
+#         'business_objectives': _stringify_section(brd_data.get('business_objectives', [])),
+#         'functional_requirements': _stringify_section(brd_data.get('functional_requirements', [])),
+#         'non_functional_requirements': _stringify_section(brd_data.get('non_functional_requirements', [])),
+#         'assumptions_and_dependencies': _stringify_section(brd_data.get('assumptions_and_dependencies', {})),
+#         'risks_and_mitigations': _stringify_section(brd_data.get('risks_and_mitigations', [])),
+#     }
+
+#     # Create chunks per section
+#     for section_name, section_content in sections_to_chunk.items():
+#         if not section_content or (isinstance(section_content, str) and len(section_content.strip()) < 50):
+#             continue
+
+#         # Split long sections into multiple chunks (~500 tokens ≈ 2000 chars)
+#         section_chunks = _split_text_into_chunks(section_content, max_chars=2000)
+
+#         for sub_chunk in section_chunks:
+#             chunk_id = f'brd_{project.id}_sec_{section_name}_{chunk_id_counter}'
+#             chunk_id_counter += 1
+
+#             metadata = {**base_metadata, 'section': section_name}
+
+#             chunks.append({
+#                 'id': chunk_id,
+#                 'text': sub_chunk,
+#                 'metadata': metadata,
+#             })
+
+#     return chunks
 
 
-def _split_text_into_chunks(text: str, max_chars: int = 2000) -> list[str]:
-    """Split text into chunks of max_chars, trying to break at sentence boundaries."""
-    if len(text) <= max_chars:
-        return [text]
-
-    chunks = []
-    current_chunk = ""
-
-    # Split by sentences (approximate)
-    sentences = text.replace('.\n', '.').split('. ')
-
-    for sentence in sentences:
-        if len(current_chunk) + len(sentence) + 2 <= max_chars:
-            current_chunk += sentence + '. '
-        else:
-            if current_chunk:
-                chunks.append(current_chunk.strip())
-            current_chunk = sentence + '. '
-
-    if current_chunk:
-        chunks.append(current_chunk.strip())
-
-    return chunks
+# def _stringify_section(data) -> str:
+#     """Convert BRD section (dict or list) to readable string."""
+#     import json
+#     if isinstance(data, dict):
+#         return json.dumps(data, indent=2)
+#     elif isinstance(data, list):
+#         return '\n'.join(
+#             json.dumps(item, indent=2) if isinstance(item, dict) else str(item)
+#             for item in data
+#         )
+#     else:
+#         return str(data)
 
 
-# ─── RAG Integration Helpers ───────────────────────────────────────────────────
+# def _split_text_into_chunks(text: str, max_chars: int = 2000) -> list[str]:
+#     """Split text into chunks of max_chars, trying to break at sentence boundaries."""
+#     if len(text) <= max_chars:
+#         return [text]
 
-def _search_global_rag_for_brd(project) -> str:
-    """
-    Search Global RAG Knowledge Base for documents relevant to the BRD project.
+#     chunks = []
+#     current_chunk = ""
 
-    Args:
-        project: Project instance
+#     # Split by sentences (approximate)
+#     sentences = text.replace('.\n', '.').split('. ')
 
-    Returns:
-        Formatted context string from RAG, or empty string if no matches
-    """
-    try:
-        from apps.rag.services import get_rag_service
+#     for sentence in sentences:
+#         if len(current_chunk) + len(sentence) + 2 <= max_chars:
+#             current_chunk += sentence + '. '
+#         else:
+#             if current_chunk:
+#                 chunks.append(current_chunk.strip())
+#             current_chunk = sentence + '. '
 
-        # Build search query from project info
-        search_query = f"{project.name or 'Project'} {project.application_type or ''} {project.line_of_business or ''}"
+#     if current_chunk:
+#         chunks.append(current_chunk.strip())
 
-        logger.info(f'[BRD RAG] Searching for: {search_query}')
-
-        rag = get_rag_service()
-        results = rag.search(
-            query_text=search_query,
-            top_k=5
-        )
-
-        if not results:
-            logger.info(f'[BRD RAG] No relevant documents found (ChromaDB returned 0 results)')
-            logger.info(f'[BRD RAG] DEBUG: Collection has {len(rag.collection.get().get("ids", []))} documents')
-            return ""
-
-        logger.info(f'[BRD RAG] Found {len(results)} documents from ChromaDB')
-
-        # Log all scores for debugging
-        for i, r in enumerate(results):
-            logger.info(f'[BRD RAG DEBUG] Result {i+1}: score={r.get("similarity_score", 0):.3f}, doc_id={r.get("document_id", "unknown")[:8]}')
-
-        # Format RAG results into context block
-        context_lines = ['=== RELEVANT DOCUMENTS FROM KNOWLEDGE BASE ===\n']
-
-        for result in results:
-            score = result.get('similarity_score', 0)
-            content = result.get('content', '')
-            doc_id = result.get('document_id', 'unknown')[:8]
-
-            # Only include relevant matches (lowered threshold for better retrieval)
-            if score >= 0.5:
-                context_lines.append(f"[Document {doc_id} - Relevance: {score:.0%}]")
-                context_lines.append(content)
-                context_lines.append('')
-
-        if len(context_lines) <= 2:
-            # If no high-confidence matches, return all results regardless of score
-            if results:
-                logger.info(f'[BRD RAG] No high-confidence matches, including low-score results')
-                context_lines = ['=== RELATED DOCUMENTS FROM KNOWLEDGE BASE ===\n']
-                for result in results[:3]:  # Take top 3 regardless of score
-                    score = result.get('similarity_score', 0)
-                    content = result.get('content', '')
-                    doc_id = result.get('document_id', 'unknown')[:8]
-                    context_lines.append(f"[Document {doc_id} - Relevance: {score:.0%}]")
-                    context_lines.append(content)
-                    context_lines.append('')
-            else:
-                logger.info(f'[BRD RAG] No documents found in ChromaDB')
-                return ""
-
-        context_lines.append('=== END KNOWLEDGE BASE ===\n')
-        rag_context = '\n'.join(context_lines)
-
-        logger.info(f'[BRD RAG] Retrieved {len(results)} documents ({len(rag_context)} chars)')
-        return rag_context
-
-    except Exception as exc:
-        logger.warning(f'[BRD RAG] Search failed (non-blocking): {exc}')
-        return ""  # Continue without RAG if search fails
+#     return chunks
 
 
-def _combine_brd_contexts(rag_context: str, company_kb: str, asset_context: str) -> str:
-    """
-    Intelligently combine multiple context sources for BRD generation.
+# # ─── RAG Integration Helpers ───────────────────────────────────────────────────
 
-    Priority order:
-    1. Global RAG (user-uploaded documents) - Most specific
-    2. Company Knowledge Base - General guidance
-    3. Asset Context - Extracted from Insight Attachments
+# # def _search_global_rag_for_brd(project) -> str:
+# #     """
+# #     Search Global RAG Knowledge Base for documents relevant to the BRD project.
 
-    Args:
-        rag_context: Documents from Global RAG search
-        company_kb: Company knowledge base guidance
-        asset_context: Extracted asset content
+# #     Args:
+# #         project: Project instance
 
-    Returns:
-        Combined context string for BRD generation
-    """
-    parts = []
+# #     Returns:
+# #         Formatted context string from RAG, or empty string if no matches
+# #     """
+# #     try:
+# #         # from apps.rag.services import get_rag_service
 
-    # Add RAG context first (most specific to this project)
-    if rag_context:
-        parts.append(rag_context)
+# #         # Build search query from project info
+# #         search_query = f"{project.name or 'Project'} {project.application_type or ''} {project.line_of_business or ''}"
 
-    # Add company knowledge base
-    if company_kb:
-        parts.append(company_kb)
+# #         logger.info(f'[BRD RAG] Searching for: {search_query}')
 
-    # Add asset context last (general extracted content)
-    if asset_context:
-        parts.append(asset_context)
+# #         rag = get_rag_service()
+# #         results = rag.search(
+# #             query_text=search_query,
+# #             top_k=5
+# #         )
 
-    combined = '\n\n'.join(parts)
+# #         if not results:
+# #             logger.info(f'[BRD RAG] No relevant documents found (ChromaDB returned 0 results)')
+# #             logger.info(f'[BRD RAG] DEBUG: Collection has {len(rag.collection.get().get("ids", []))} documents')
+# #             return ""
 
-    if combined:
-        logger.info(f'[BRD] Combined context: {len(combined)} chars ({len(parts)} sources)')
+# #         logger.info(f'[BRD RAG] Found {len(results)} documents from ChromaDB')
 
-    return combined
+# #         # Log all scores for debugging
+# #         for i, r in enumerate(results):
+# #             logger.info(f'[BRD RAG DEBUG] Result {i+1}: score={r.get("similarity_score", 0):.3f}, doc_id={r.get("document_id", "unknown")[:8]}')
+
+# #         # Format RAG results into context block
+# #         context_lines = ['=== RELEVANT DOCUMENTS FROM KNOWLEDGE BASE ===\n']
+
+# #         for result in results:
+# #             score = result.get('similarity_score', 0)
+# #             content = result.get('content', '')
+# #             doc_id = result.get('document_id', 'unknown')[:8]
+
+# #             # Only include relevant matches (lowered threshold for better retrieval)
+# #             if score >= 0.5:
+# #                 context_lines.append(f"[Document {doc_id} - Relevance: {score:.0%}]")
+# #                 context_lines.append(content)
+# #                 context_lines.append('')
+
+# #         if len(context_lines) <= 2:
+# #             # If no high-confidence matches, return all results regardless of score
+# #             if results:
+# #                 logger.info(f'[BRD RAG] No high-confidence matches, including low-score results')
+# #                 context_lines = ['=== RELATED DOCUMENTS FROM KNOWLEDGE BASE ===\n']
+# #                 for result in results[:3]:  # Take top 3 regardless of score
+# #                     score = result.get('similarity_score', 0)
+# #                     content = result.get('content', '')
+# #                     doc_id = result.get('document_id', 'unknown')[:8]
+# #                     context_lines.append(f"[Document {doc_id} - Relevance: {score:.0%}]")
+# #                     context_lines.append(content)
+# #                     context_lines.append('')
+# #             else:
+# #                 logger.info(f'[BRD RAG] No documents found in ChromaDB')
+# #                 return ""
+
+# #         context_lines.append('=== END KNOWLEDGE BASE ===\n')
+# #         rag_context = '\n'.join(context_lines)
+
+# #         logger.info(f'[BRD RAG] Retrieved {len(results)} documents ({len(rag_context)} chars)')
+# #         return rag_context
+
+# #     except Exception as exc:
+# #         logger.warning(f'[BRD RAG] Search failed (non-blocking): {exc}')
+# #         return ""  # Continue without RAG if search fails
+
+
+# def _combine_brd_contexts(rag_context: str, company_kb: str, asset_context: str) -> str:
+#     """
+#     Intelligently combine multiple context sources for BRD generation.
+
+#     Priority order:
+#     1. Global RAG (user-uploaded documents) - Most specific
+#     2. Company Knowledge Base - General guidance
+#     3. Asset Context - Extracted from Insight Attachments
+
+#     Args:
+#         rag_context: Documents from Global RAG search
+#         company_kb: Company knowledge base guidance
+#         asset_context: Extracted asset content
+
+#     Returns:
+#         Combined context string for BRD generation
+#     """
+#     parts = []
+
+#     # Add RAG context first (most specific to this project)
+#     if rag_context:
+#         parts.append(rag_context)
+
+#     # Add company knowledge base
+#     if company_kb:
+#         parts.append(company_kb)
+
+#     # Add asset context last (general extracted content)
+#     if asset_context:
+#         parts.append(asset_context)
+
+#     combined = '\n\n'.join(parts)
+
+#     if combined:
+#         logger.info(f'[BRD] Combined context: {len(combined)} chars ({len(parts)} sources)')
+
+#     return combined
