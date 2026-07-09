@@ -161,6 +161,16 @@ class ProjectAssetCreateSerializer(serializers.ModelSerializer):
         fields = ['id', 'connector_type', 'title', 'file', 'url']
         read_only_fields = ['id']
 
+    def to_internal_value(self, data):
+        if hasattr(data, 'copy'):
+            data = data.copy()
+        
+        # Map frontend 'mails' alias to the backend 'email' choice
+        if data.get('connector_type') == 'mails':
+            data['connector_type'] = 'email'
+            
+        return super().to_internal_value(data)
+
     def validate(self, data):
         connector_type = data.get('connector_type')
         file = data.get('file')
