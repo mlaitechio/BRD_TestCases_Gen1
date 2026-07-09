@@ -91,6 +91,7 @@ INSTALLED_APPS = [
 
 # ─── Middleware ───────────────────────────────────────────────────────────────
 
+ 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -195,15 +196,74 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+
 # ─── CORS & CSRF ──────────────────────────────────────────────────────────────
+ 
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+    CORS_ALLOWED_ORIGINS = []
+    CORS_ALLOW_CREDENTIALS = True
+    CORS_ALLOW_HEADERS = ["*"]
+    CORS_ALLOW_METHODS = ["*"]
 
-CORS_ALLOW_ALL_ORIGINS = DEBUG  # Open CORS only in debug mode
-_cors_origins = [o.strip() for o in os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if o.strip()]
-if _prod_url and _prod_url not in _cors_origins:
-    _cors_origins.append(_prod_url)
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
+    _cors_origins = [
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'https://lumber-deny-settle.ngrok-free.dev',
+    ]
+    CORS_ALLOWED_ORIGINS = _cors_origins
+    CORS_ALLOW_CREDENTIALS = True
+# CSRF trusted origins
+_csrf_origins = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'https://lumber-deny-settle.ngrok-free.dev',
+]
+CSRF_TRUSTED_ORIGINS = _csrf_origins
 
-CORS_ALLOWED_ORIGINS = _cors_origins if not DEBUG else []
-CSRF_TRUSTED_ORIGINS = _cors_origins
+ 
+# # ─── CORS & CSRF ──────────────────────────────────────────────────────────────
+
+# if DEBUG:
+#     # Dev: Allow all origins with full headers
+#     CORS_ALLOW_ALL_ORIGINS = True
+#     CORS_ALLOWED_ORIGINS = []
+#     CORS_ALLOW_CREDENTIALS = True
+#     CORS_ALLOW_HEADERS = [
+#         'accept',
+#         'accept-encoding',
+#         'authorization',
+#         'content-type',
+#         'dnt',
+#         'origin',
+#         'user-agent',
+#         'x-csrftoken',
+#         'x-requested-with',
+#     ]
+#     CORS_ALLOW_METHODS = [
+#         'DELETE',
+#         'GET',
+#         'OPTIONS',
+#         'PATCH',
+#         'POST',
+#         'PUT',
+#     ]
+# else:
+#     # Prod: Explicit origins only
+#     CORS_ALLOW_ALL_ORIGINS = False
+#     _cors_origins = [o.strip() for o in os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if o.strip()]
+#     if _prod_url and _prod_url not in _cors_origins:
+#         _cors_origins.append(_prod_url)
+#     CORS_ALLOWED_ORIGINS = _cors_origins
+#     CORS_ALLOW_CREDENTIALS = True
+
+# # CSRF trusted origins (always use explicit list)
+# _csrf_origins = [o.strip() for o in os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if o.strip()]
+# if _prod_url and _prod_url not in _csrf_origins:
+#     _csrf_origins.append(_prod_url)
+# CSRF_TRUSTED_ORIGINS = _csrf_origins
 
 # ─── Django REST Framework ────────────────────────────────────────────────────
 
