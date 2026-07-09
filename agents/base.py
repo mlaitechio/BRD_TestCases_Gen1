@@ -261,10 +261,15 @@ def _call_azure_openai(system_prompt: str, user_prompt: str, model_override: str
         
         choice = response.choices[0]
         content = choice.message.content
+        finish_reason = getattr(choice, 'finish_reason', 'unknown')
+
+        # Check for token limit overflow (finish_reason == 'length')
+        if finish_reason == 'length':
+            raise RuntimeError(f'Azure OpenAI returned incomplete response due to token limit. Finish reason: {finish_reason}. Response truncated at: {content[:100] if content else "empty"}')
+
         if not content or not content.strip():
-            finish_reason = getattr(choice, 'finish_reason', 'unknown')
             raise RuntimeError(f'Azure OpenAI returned empty content. Finish reason: {finish_reason}')
-            
+
         return content
     except Exception as e:
         raise RuntimeError(f'Azure OpenAI API call failed: {e}')

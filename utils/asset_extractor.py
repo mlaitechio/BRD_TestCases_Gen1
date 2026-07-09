@@ -196,6 +196,8 @@ def _extract_from_file(file_path: str, connector_type: str) -> str:
         return _extract_docx(file_path)
     elif ext in ('.txt', '.md', '.csv', '.eml'):
         return _extract_text_file(file_path)
+    elif ext == '.msg':
+        return _extract_msg(file_path)
     elif ext in ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'):
         # All connector types: describe image using AI vision
         # (previously only 'architecture' was handled this way)
@@ -249,6 +251,39 @@ def _extract_text_file(file_path: str) -> str:
         except (UnicodeDecodeError, LookupError):
             continue
     raise RuntimeError(f'Could not decode text file: {file_path}')
+
+
+def _extract_msg(file_path: str) -> str:
+    """Extract text from Outlook .msg file using extract_msg."""
+    try:
+        import extract_msg
+    except ImportError:
+        raise RuntimeError("extract-msg package not installed. Cannot extract .msg files.")
+        
+    try:
+        msg = extract_msg.Message(file_path)
+        
+        parts = []
+        if msg.subject:
+            parts.append(f"Subject: {msg.subject}")
+        if msg.sender:
+            parts.append(f"From: {msg.sender}")
+        if msg.to:
+            parts.append(f"To: {msg.to}")
+        if msg.date:
+            parts.append(f"Date: {msg.date}")
+            
+        parts.append("-" * 40)
+        
+        body = msg.body
+        if body:
+            parts.append(body.strip())
+            
+        text = '\n'.join(parts).strip()
+        logger.info(f'[AssetExtractor] .msg extracted: {len(text)} chars')
+        return text
+    except Exception as e:
+        raise RuntimeError(f'Could not extract text from .msg file: {file_path}. Error: {e}')
 
 
 def _describe_image_with_ai(file_path: str) -> str:

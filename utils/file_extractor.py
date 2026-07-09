@@ -44,6 +44,8 @@ def extract_text_from_file(file_path: str) -> str | None:
             text = _extract_from_txt(file_path)
         elif ext in ('.xlsx', '.xls'):
             text = _extract_from_xlsx(file_path)
+        elif ext == '.msg':
+            text = _extract_from_msg(file_path)
         elif ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'):
             # Direct image upload — describe with AI vision via image_extractor
             text = ''
@@ -180,3 +182,40 @@ def _extract_from_xlsx(file_path: str) -> str:
     else:
         logger.warning(f'XLSX {file_path} was empty or unreadable.')
         return ""
+
+
+def _extract_from_msg(file_path: str) -> str:
+    """Extract text from Outlook .msg file using extract_msg."""
+    try:
+        import extract_msg
+    except ImportError:
+        raise RuntimeError("extract-msg package not installed. Cannot extract .msg files.")
+        
+    try:
+        msg = extract_msg.Message(file_path)
+        
+        parts = []
+        if msg.subject:
+            parts.append(f"Subject: {msg.subject}")
+        if msg.sender:
+            parts.append(f"From: {msg.sender}")
+        if msg.to:
+            parts.append(f"To: {msg.to}")
+        if msg.date:
+            parts.append(f"Date: {msg.date}")
+            
+        parts.append("-" * 40)
+        
+        body = msg.body
+        if body:
+            parts.append(body.strip())
+            
+        text = '\n'.join(parts).strip()
+        if text:
+            logger.info(f'.msg extracted: {len(text)} chars')
+            return text
+        else:
+            logger.warning(f'.msg {file_path} was empty or unreadable.')
+            return ""
+    except Exception as e:
+        raise RuntimeError(f'Could not extract text from .msg file: {file_path}. Error: {e}')

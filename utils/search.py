@@ -189,32 +189,59 @@ class GlobalKnowledgeBase:
         )
         logger.info(f"[GlobalKnowledgeBase] Added {len(chunks)} chunks for document {document_id}.")
 
-    def search_similar(self, query_text: str, top_k: int = 5) -> str:
+    def search_similar(self, query_text: str, top_k: int = 5, application_type: str = None, line_of_business: str = None) -> str:
         """
         Search the ChromaDB collection for chunks similar to the query text.
+
+        Args:
+            query_text: The search query
+            top_k: Number of results to return
+            application_type: Filter by app type (e.g., 'salesforce', 'servicenow')
+            line_of_business: Filter by business unit
+
+        Returns:
+            Formatted context block with retrieved chunks
         """
         if not self.embedding_fn:
             logger.error("[GlobalKnowledgeBase] Cannot search without an embedding provider.")
             return ""
 
         try:
+            # Build metadata filter if provided
+            where_filter = None
+            if application_type or line_of_business:
+                filters = []
+                if application_type:
+                    filters.append({"application_type": {"$eq": application_type}})
+                if line_of_business:
+                    filters.append({"line_of_business": {"$eq": line_of_business}})
+
+                # Combine filters with OR
+                if len(filters) > 1:
+                    where_filter = {"$or": filters}
+                else:
+                    where_filter = filters[0] if filters else None
+
             results = self.collection.query(
                 query_texts=[query_text],
-                n_results=top_k
+                n_results=top_k,
+                where=where_filter
             )
-            
+
             if not results['documents'] or not results['documents'][0]:
                 return ""
-                
+
             retrieved_chunks = results['documents'][0]
             metadatas = results['metadatas'][0]
-            
+
             context_blocks = []
             for doc, meta in zip(retrieved_chunks, metadatas):
                 source = meta.get('source', 'Unknown')
                 section = meta.get('section', 'General')
-                context_blocks.append(f"--- Previous BRD ({source}) - {section} ---\n{doc}")
-                
+                app_type = meta.get('application_type', '')
+                date = meta.get('date', '')
+                context_blocks.append(f"--- Previous BRD ({source} - {app_type}) [{section}] ({date}) ---\n{doc}")
+
             return "\n\n".join(context_blocks)
         except Exception as e:
             logger.error(f"[GlobalKnowledgeBase] Search failed: {e}")
@@ -229,13 +256,22 @@ def _get_kb_instance():
         _kb_instance = GlobalKnowledgeBase()
     return _kb_instance
 
-def search_knowledge_base(query_text: str, top_k: int = 5) -> str:
+def search_knowledge_base(query_text: str, top_k: int = 5, application_type: str = None, line_of_business: str = None) -> str:
     """
     Retrieve corporate knowledge base guidelines and past similar BRD chunks.
+
+    Args:
+        query_text: Search query
+        top_k: Number of results
+        application_type: Filter by app type (optional)
+        line_of_business: Filter by business unit (optional)
+
+    Returns:
+        Formatted context block for prompt injection
     """
     kb = _get_kb_instance()
-    guidance = kb.search_similar(query_text, top_k)
+    guidance = kb.search_similar(query_text, top_k, application_type, line_of_business)
     if not guidance:
         return ""
-    
+
     return f'=== COMPANY KNOWLEDGE BASE ===\n\n{guidance}\n\n=== END COMPANY KNOWLEDGE BASE ===\n'

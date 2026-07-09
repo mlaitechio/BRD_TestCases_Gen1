@@ -151,6 +151,21 @@ class AgentOutput(models.Model):
         help_text='Parsed JSON output — what the frontend reads'
     )
     error_message = models.TextField(blank=True, null=True)
+
+    # RAG System Tracking
+    is_indexed = models.BooleanField(
+        default=False,
+        help_text='Whether this output has been indexed to the RAG knowledge base'
+    )
+    rag_chunk_count = models.IntegerField(
+        default=0, null=True, blank=True,
+        help_text='Number of chunks stored in ChromaDB for this output'
+    )
+    rag_indexed_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Timestamp when this output was indexed to RAG'
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

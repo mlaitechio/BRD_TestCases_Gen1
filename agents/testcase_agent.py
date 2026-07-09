@@ -142,24 +142,32 @@ def generate_test_cases(brd_output: dict, context_summary: str | None = None, ap
     if company_knowledge_base and company_knowledge_base.strip():
         knowledge_base_section = f'\n\n{company_knowledge_base}'
 
-    chunk_size = 3
+    chunk_size = 5
     all_test_cases = []
     all_traceability = []
+    sr_no_counter = 1
 
     for i in range(0, len(functional_requirements), chunk_size):
         chunk = functional_requirements[i:i + chunk_size]
-        
-        user_prompt = f"""Generate comprehensive test cases for these specific functional requirements ONLY:
+
+        user_prompt = f"""Generate test cases for these requirements:
 
 {json.dumps(chunk, indent=2)}
 
-Project Context: {brd_output.get('executive_summary', '')}{context_section}{app_directive}{knowledge_base_section}
+Context: {brd_output.get('executive_summary', '')[:500]}{app_directive}{knowledge_base_section if i == 0 else ''}
 
-Generate test cases with full traceability to requirement IDs."""
+Return ONLY JSON with test_cases and traceability_matrix."""
 
         try:
             chunk_result = generate_json(SYSTEM_PROMPT, user_prompt)
-            all_test_cases.extend(chunk_result.get('test_cases', []))
+            chunk_test_cases = chunk_result.get('test_cases', [])
+
+            # CRITICAL FIX: Renumber sr_no sequentially across all chunks
+            for test_case in chunk_test_cases:
+                test_case['sr_no'] = sr_no_counter
+                sr_no_counter += 1
+
+            all_test_cases.extend(chunk_test_cases)
             all_traceability.extend(chunk_result.get('traceability_matrix', []))
         except Exception as e:
             print(f"Warning: Failed to generate test cases for a chunk: {e}")
