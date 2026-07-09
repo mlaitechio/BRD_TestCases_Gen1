@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 
 
 
-
 @shared_task(bind=True, max_retries=3, default_retry_delay=10)
 def run_brd_task(self, project_id: str):
     """
@@ -23,8 +22,6 @@ def run_brd_task(self, project_id: str):
       - Project description + metadata
       - User clarification answers
       - Active project asset context (Knowledge Layer)
-      - Global RAG context (user-uploaded documents) ← NEW!
-      - Company knowledge base context
       - Revision notes (if this is a revision run)
 
     Fires after user submits answers, or after a revision request.
@@ -33,7 +30,6 @@ def run_brd_task(self, project_id: str):
     from agents.brd_agent import generate_brd
     from utils.context_builder import build_context_for_project, build_project_metadata_block
     from utils.search import search_knowledge_base
-    # from apps.rag.services import get_rag_service  # ← NEW: RAG import
 
     try:
         project = Project.objects.get(id=project_id)
@@ -57,42 +53,16 @@ def run_brd_task(self, project_id: str):
 
         answers = project.clarification_answers or {}
 
-        # ──────────────────────────────────────────────────────────────────
-        # NEW: Search Global RAG for relevant user-uploaded documents
-        # ──────────────────────────────────────────────────────────────────
-        rag_context = _search_global_rag_for_brd(project)
-        if rag_context:
-            logger.info(f'[BRD] Retrieved {len(rag_context)} chars from Global RAG')
-
-        # Retrieve global knowledge base guidance with smart filtering
-        company_kb = search_knowledge_base(
-            query_text=project.name or "General BRD Requirements",
-            top_k=3,
-            application_type=project.application_type,
-            line_of_business=project.line_of_business
-        )
-
-        # ──────────────────────────────────────────────────────────────────
-        # Combine all contexts: RAG documents + Company KB + Asset context
-        # ──────────────────────────────────────────────────────────────────
-        combined_context = _combine_brd_contexts(
-            rag_context=rag_context,
-            company_kb=company_kb,
-            asset_context=asset_context
-        )
+        # Retrieve global knowledge base guidance
+        company_kb = search_knowledge_base(project.name or "General BRD Requirements", top_k=3)
 
         logger.info(f'[BRD] Starting for project {project_id}')
-
-        active_toc = project.toc_sections.filter(is_enabled=True).order_by('order')
-        toc_data = [{'key': t.key, 'label': t.label, 'is_custom': t.is_custom} for t in active_toc]
-
         result = generate_brd(
             project_description=full_description,
             clarification_answers=answers,
             revision_notes=project.revision_notes,
-            context_summary=combined_context,  # ← Now includes RAG documents!
+            context_summary=asset_context,
             company_knowledge_base=company_kb,
-            toc_sections=toc_data if toc_data else None,
         )
 
         agent_output.status = 'complete'
@@ -100,14 +70,11 @@ def run_brd_task(self, project_id: str):
         agent_output.raw_output = str(result)
         agent_output.save()
 
-        # Queue RAG indexing async (non-blocking)
-        run_rag_indexing_task.delay(str(agent_output.id))
-
         project.status = 'awaiting_approval'
         project.revision_notes = None
         project.save(update_fields=['status', 'revision_notes', 'updated_at'])
 
-        logger.info(f'[BRD] Complete for project {project_id} — RAG indexing queued')
+        logger.info(f'[BRD] Complete for project {project_id}')
 
     except Project.DoesNotExist:
         logger.error(f'[BRD] Project {project_id} not found')
@@ -116,7 +83,6 @@ def run_brd_task(self, project_id: str):
         logger.error(f'[BRD] Failed for project {project_id}: {exc}')
         _mark_project_failed(project_id, 'brd', exc)
         raise self.retry(exc=exc)
-
 
 # ─── Task 3: Plan Agent ─────────────────────────────────────────────────────────
 
