@@ -28,7 +28,9 @@ class AISearchService:
         self.client = AzureOpenAI(
             api_key=api_key,
             api_version=api_version,
-            azure_endpoint=api_base
+            azure_endpoint=api_base,
+            timeout=60.0,
+            max_retries=0
         )
         self.model = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME', 'gpt-5.5')
 
@@ -99,7 +101,7 @@ class AISearchService:
         self,
         user_message: str,
         conversation_history: list = None,
-        max_tokens: int = 2000
+        max_tokens: int = 2048
     ) -> tuple[str, int]:
         """
         Get complete response (non-streaming).

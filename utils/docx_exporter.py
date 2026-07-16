@@ -362,34 +362,45 @@ def export_brd_to_docx(structured_output: dict, toc_sections: list[dict] = None,
     )
 
     # ── Table of Contents ──
-    _add_h1(doc, "Table of Contents")
-    
+    toc_para = doc.add_paragraph()
+    toc_para.style = 'Heading 1'
+    toc_run = toc_para.add_run("Table of Contents")
+    toc_run.font.color.rgb = ABHFL_GREEN
+
     if not toc_sections:
-        keys = ["executive_summary", "project_scope", "business_objectives", "stakeholders", 
-                "project_plan", "effort_estimation", "functional_requirements", 
-                "non_functional_requirements", "constraints_and_assumptions", 
-                "success_criteria", "glossary"]
+        keys = ["executive_summary", "project_scope", "business_objectives", "stakeholders",
+                "project_plan", "effort_estimation", "functional_requirements",
+                "non_functional_requirements", "constraints_and_assumptions",
+                "success_criteria", "glossary", "risks_and_mitigations", "sign_off_matrix"]
         toc_sections = [{"key": k, "label": k.replace('_', ' ').title()} for k in keys]
-        
-    for idx, sec in enumerate(toc_sections, start=1):
+
+    # Build TOC list from sections that have content
+    toc_index = 1
+    for sec in toc_sections:
         key = sec['key']
-        label = sec.get('label', key.replace('_', ' ').title())
-        _add_body(doc, f"{idx}. {label}")
-        
+        content = structured_output.get(key)
+        if content:
+            label = sec.get('label', key.replace('_', ' ').title())
+            _add_body(doc, f"{toc_index}. {label}")
+            toc_index += 1
+
     doc.add_page_break()
 
     idx = 0
-    for idx, sec in enumerate(toc_sections, start=1):
+    section_number = 1
+    for sec in toc_sections:
         key = sec['key']
         label = sec.get('label', key.replace('_', ' ').title())
         content = structured_output.get(key)
-        
+
+        # Skip sections with no content
+        if not content:
+            continue
+
+        idx = section_number
         # Add heading
         _add_h1(doc, f"{idx}. {label}")
-        
-        if not content:
-            _add_body(doc, "Content not provided.")
-            continue
+        section_number += 1
             
         if key == "executive_summary":
             _add_body(doc, content)
@@ -530,6 +541,35 @@ def export_brd_to_docx(structured_output: dict, toc_sections: list[dict] = None,
                         _add_body(doc, str(v))
             else:
                 _add_body(doc, str(content))
+
+    # ── Additional Content (any sections not in toc_sections) ──
+    known_keys = {sec['key'] for sec in toc_sections} if toc_sections else set()
+    excluded_keys = {'project_name', 'version', 'document_date', 'id', 'title'}
+    additional_keys = [k for k in structured_output.keys() if k not in known_keys and k not in excluded_keys]
+
+    if additional_keys:
+        doc_idx = idx + 1
+        _add_h1(doc, f"{doc_idx}. Additional Information")
+        idx += 1
+
+        for key in additional_keys:
+            content = structured_output.get(key)
+            if content:
+                label = key.replace('_', ' ').title()
+                _add_h2(doc, label)
+                if isinstance(content, str):
+                    _add_body(doc, content)
+                elif isinstance(content, list):
+                    for item in content:
+                        _add_bullet(doc, str(item))
+                elif isinstance(content, dict):
+                    for k, v in content.items():
+                        if isinstance(v, list):
+                            _add_h2(doc, k.replace('_', ' ').title())
+                            for item in v:
+                                _add_bullet(doc, str(item))
+                        else:
+                            _add_body(doc, f"{k}: {v}")
 
     # ── Document Control ──
     doc_idx = idx + 1

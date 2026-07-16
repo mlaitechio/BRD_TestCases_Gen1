@@ -13,15 +13,42 @@ def get_default_model():
     return os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME', 'gpt-5.5')
 
 
+class ChatSession(models.Model):
+    """
+    Stores chat sessions - identifies a user's chat session.
+    Each session has a unique sessionid that frontend uses to track conversations.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sessionid = models.CharField(max_length=100, unique=True, db_index=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chat_sessions')
+
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_accessed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-last_accessed_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['sessionid']),
+        ]
+
+    def __str__(self):
+        return f'{self.user.username} - {self.sessionid[:20]}...'
+
+
 class ChatConversation(models.Model):
     """
     Stores individual chat conversations.
     Each conversation is a separate thread with its own message history.
+    Linked to a ChatSession for session tracking.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    # User & Metadata
+    # Session & User
+    session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name='conversations', null=True, blank=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chat_conversations')
     title = models.CharField(max_length=255, blank=True, help_text='Conversation title (auto-generated or user-set)')
 

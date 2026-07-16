@@ -6,6 +6,10 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    # Simple endpoints for UI
+    path('init/', views.init_session_view, name='chat-init'),
+    path('send/', views.send_message_simple_view, name='chat-send'),
+
     # Conversations
     path('conversations/', views.ChatConversationListCreateView.as_view(), name='chat-conversation-list-create'),
     path('conversations/<uuid:conversation_id>/', views.ChatConversationDetailView.as_view(), name='chat-conversation-detail'),

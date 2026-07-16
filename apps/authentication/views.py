@@ -233,14 +233,16 @@ class VerifyAuthView(View):
     GET /api/verify_auth
 
     Verifies the JWT cookie and returns current authentication status.
-    On success, also logs the visit to ``app_logs.log``.
+    Generates and returns sessionid for chat API.
+    Works for both authenticated and unauthenticated users.
 
     Response (unauthenticated):
-        {"authenticated": false}
+        {"authenticated": false, "sessionid": "session-uuid-here"}
 
     Response (authenticated):
         {
             "authenticated": true,
+            "sessionid": "session-uuid-here",
             "email": "...",
             "accountname": "...",
             "company": "..."
@@ -248,24 +250,51 @@ class VerifyAuthView(View):
     """
 
     def get(self, request):
+        from django.contrib.auth.models import User
+        from apps.ai_chat.models import ChatSession
+
+        # Get or create test user for anonymous requests
         token = request.COOKIES.get("auth_token")
-        if not token:
-            return JsonResponse({"authenticated": False})
+        payload = None
 
-        payload = Security.verify_jwt_token(token)
+        if token:
+            payload = Security.verify_jwt_token(token)
+
         if not payload:
-            return JsonResponse({"authenticated": False})
+            # Create session for anonymous user
+            user, _ = User.objects.get_or_create(username='test_user')
+            session, _ = ChatSession.objects.get_or_create(
+                user=user,
+                defaults={'sessionid': 'anon-' + str(__import__('uuid').uuid4())[:16]}
+            )
+            return JsonResponse({
+                "authenticated": False,
+                "sessionid": session.sessionid
+            })
 
-        # Log the visit (mirrors the Flask reference)
+        # Authenticated user
+        email = payload.get("email", "")
+        user, _ = User.objects.get_or_create(
+            username=payload.get("accountname", email),
+            defaults={'email': email}
+        )
+
+        # Create or get chat session
+        session, _ = ChatSession.objects.get_or_create(
+            user=user,
+            defaults={'sessionid': str(user.id) + '-' + str(__import__('uuid').uuid4())[:12]}
+        )
+
+        # Log the visit
         indian_tz = pytz.timezone("Asia/Kolkata")
         indian_now = datetime.now(indian_tz).strftime("%Y-%m-%d %H:%M:%S.%f")
-        email = payload.get("email", "")
         accountname = payload.get("accountname", "")
         log_db("VERIFY_AUTH", "auth_visit", f"email={email}, name={accountname}, ts={indian_now}")
 
         return JsonResponse(
             {
                 "authenticated": True,
+                "sessionid": session.sessionid,
                 "email": email,
                 "accountname": accountname,
                 "company": payload.get("company", ""),
@@ -279,17 +308,37 @@ class UserView(View):
     GET /api/user
 
     Returns the authenticated user's info from the JWT payload.
+    Also returns sessionid for chat API.
     Requires a valid auth_token cookie (protected by @require_auth).
     """
 
     @method_decorator(require_auth)
     def get(self, request):
         try:
+            from django.contrib.auth.models import User
+            from apps.ai_chat.models import ChatSession
+
             payload = request.auth_payload
+            email = payload.get("email", "")
+            accountname = payload.get("accountname", email)
+
+            # Get or create user
+            user, _ = User.objects.get_or_create(
+                username=accountname,
+                defaults={'email': email}
+            )
+
+            # Create or get chat session
+            session, _ = ChatSession.objects.get_or_create(
+                user=user,
+                defaults={'sessionid': str(user.id) + '-' + str(__import__('uuid').uuid4())[:12]}
+            )
+
             return JsonResponse(
                 {
-                    "email": payload.get("email"),
-                    "accountname": payload.get("accountname", ""),
+                    "sessionid": session.sessionid,
+                    "email": email,
+                    "accountname": accountname,
                     "company": payload.get("company", ""),
                 },
                 status=200,

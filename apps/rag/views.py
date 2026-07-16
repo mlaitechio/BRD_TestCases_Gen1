@@ -221,6 +221,72 @@ class RAGIndexingStatusView(APIView):
         })
 
 
+class RAGBatchDocumentUploadView(APIView):
+    """
+    POST /api/rag/documents/batch-upload/  - Upload multiple documents at once
+    """
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def post(self, request):
+        """Upload multiple documents"""
+        files = request.FILES.getlist('files')
+
+        if not files:
+            return Response(
+                {'error': 'No files provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        category = request.data.get('category', 'General')
+        tags = request.data.get('tags', '')
+
+        uploaded_docs = []
+        errors = []
+
+        for idx, file_obj in enumerate(files):
+            try:
+                serializer = RAGDocumentUploadSerializer(data={
+                    'file': file_obj,
+                    'title': file_obj.name.split('.')[0],
+                    'category': category,
+                    'tags': tags,
+                    'created_by': request.user if request.user.is_authenticated else None
+                })
+
+                if serializer.is_valid():
+                    document = serializer.save()
+
+                    from .tasks import run_rag_document_indexing_task
+                    run_rag_document_indexing_task.delay(str(document.id))
+
+                    uploaded_docs.append({
+                        'id': str(document.id),
+                        'title': document.title,
+                        'status': 'indexing',
+                        'file_size': document.file_size_bytes
+                    })
+                    logger.info(f'[RAG Batch] File {idx+1}: {document.id} uploaded')
+                else:
+                    errors.append({
+                        'file': file_obj.name,
+                        'error': serializer.errors
+                    })
+            except Exception as e:
+                errors.append({
+                    'file': file_obj.name,
+                    'error': str(e)
+                })
+                logger.error(f'[RAG Batch] File {idx+1} error: {e}')
+
+        return Response({
+            'total_files': len(files),
+            'uploaded': len(uploaded_docs),
+            'failed': len(errors),
+            'documents': uploaded_docs,
+            'errors': errors if errors else None
+        }, status=status.HTTP_201_CREATED)
+
+
 class RAGStatsView(APIView):
     """
     GET /api/rag/stats/    - Global RAG statistics

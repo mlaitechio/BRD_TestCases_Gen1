@@ -395,3 +395,16 @@ if _app_env == 'prod':
 else:
     AUTH_COOKIE_SECURE   = False
     AUTH_COOKIE_SAMESITE = 'None'  # cross-origin dev (Vite on :5173 → Django on :8000)
+
+# ─── Session Configuration ────────────────────────────────────────────────────────
+# Extended session timeout to prevent interruptions during BRD generation
+SESSION_COOKIE_AGE = 1 * 60 * 60  # 1 hour in seconds
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+SESSION_SAVE_EVERY_REQUEST = True  # Update last activity on every request
+SESSION_COOKIE_HTTPONLY = True
+if _app_env == 'prod':
+    SESSION_COOKIE_SECURE = True
+    SESSION_COOKIE_SAMESITE = 'None'
+else:
+    SESSION_COOKIE_SECURE = False
+    SESSION_COOKIE_SAMESITE = 'None'

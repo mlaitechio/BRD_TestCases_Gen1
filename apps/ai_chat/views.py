@@ -11,7 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import ChatConversation, ChatMessage, ChatSessionLog
+from .models import ChatConversation, ChatMessage, ChatSessionLog, ChatSession
 from .serializers import (
     ChatConversationListSerializer,
     ChatConversationDetailSerializer,
@@ -25,45 +25,57 @@ logger = logging.getLogger(__name__)
 
 class ChatConversationListCreateView(APIView):
     """
-    GET  /api/chat/conversations/           - List all conversations for user
-    POST /api/chat/conversations/           - Create new conversation
+    GET  /api/chat/conversations/?sessionid=xxx  - List all conversations for session
+    POST /api/chat/conversations/                - Create new conversation
     """
-    # permission_classes = [IsAuthenticated]  # Disabled for testing
+
+    def _get_session(self, sessionid):
+        """Get session from sessionid"""
+        try:
+            return ChatSession.objects.get(sessionid=sessionid)
+        except ChatSession.DoesNotExist:
+            return None
 
     def get(self, request):
-        """List user's conversations"""
+        """List user's conversations for a session"""
         from django.contrib.auth.models import User
 
-        # Get test user for anonymous requests
-        user = request.user if request.user and not request.user.is_anonymous else None
-        if not user:
-            user, _ = User.objects.get_or_create(username='test_user')
+        sessionid = request.query_params.get('sessionid') or request.data.get('sessionid')
 
-        conversations = ChatConversation.objects.filter(user=user, is_active=True)
+        if not sessionid:
+            return Response({'error': 'sessionid is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        session = self._get_session(sessionid)
+        if not session:
+            return Response({'error': 'Invalid session'}, status=status.HTTP_404_NOT_FOUND)
+
+        conversations = ChatConversation.objects.filter(session=session, is_active=True)
         serializer = ChatConversationListSerializer(conversations, many=True)
         return Response({
             'count': conversations.count(),
+            'sessionid': sessionid,
             'conversations': serializer.data
         })
 
     def post(self, request):
-        """Create new conversation"""
-        from django.contrib.auth.models import User
-
+        """Create new conversation for a session"""
+        sessionid = request.data.get('sessionid')
         title = request.data.get('title', 'New Conversation')
 
-        # Get or create test user if not authenticated
-        if not request.user or request.user.is_anonymous:
-            user, _ = User.objects.get_or_create(username='test_user')
-        else:
-            user = request.user
+        if not sessionid:
+            return Response({'error': 'sessionid is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        session = self._get_session(sessionid)
+        if not session:
+            return Response({'error': 'Invalid session'}, status=status.HTTP_404_NOT_FOUND)
 
         conversation = ChatConversation.objects.create(
-            user=user,
+            session=session,
+            user=session.user,
             title=title
         )
 
-        logger.info(f'[AIChat] Created conversation {conversation.id} for user {request.user.username}')
+        logger.info(f'[AIChat] Created conversation {conversation.id} for session {sessionid}')
 
         serializer = ChatConversationDetailSerializer(conversation, context={'request': request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -71,25 +83,35 @@ class ChatConversationListCreateView(APIView):
 
 class ChatConversationDetailView(APIView):
     """
-    GET    /api/chat/conversations/{id}/    - Get conversation with history
-    DELETE /api/chat/conversations/{id}/    - Archive/delete conversation
+    GET    /api/chat/conversations/{id}/?sessionid=xxx  - Get conversation with history
+    DELETE /api/chat/conversations/{id}/?sessionid=xxx  - Archive/delete conversation
     """
-    # permission_classes = [IsAuthenticated]  # Disabled for testing
 
-    def get_conversation(self, conversation_id, user):
-        """Get conversation and check ownership"""
-        from django.contrib.auth.models import User
+    def _get_session(self, sessionid):
+        """Get session from sessionid"""
         try:
-            # For testing: allow access to test_user conversations
-            if not user or user.is_anonymous:
-                user, _ = User.objects.get_or_create(username='test_user')
-            return ChatConversation.objects.get(id=conversation_id, user=user)
+            return ChatSession.objects.get(sessionid=sessionid)
+        except ChatSession.DoesNotExist:
+            return None
+
+    def get_conversation(self, conversation_id, session):
+        """Get conversation and check ownership"""
+        try:
+            return ChatConversation.objects.get(id=conversation_id, session=session)
         except ChatConversation.DoesNotExist:
             return None
 
     def get(self, request, conversation_id):
         """Get conversation details with message history"""
-        conversation = self.get_conversation(conversation_id, request.user)
+        sessionid = request.query_params.get('sessionid')
+        if not sessionid:
+            return Response({'error': 'sessionid is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        session = self._get_session(sessionid)
+        if not session:
+            return Response({'error': 'Invalid session'}, status=status.HTTP_404_NOT_FOUND)
+
+        conversation = self.get_conversation(conversation_id, session)
         if not conversation:
             return Response({'error': 'Conversation not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -98,7 +120,15 @@ class ChatConversationDetailView(APIView):
 
     def delete(self, request, conversation_id):
         """Archive conversation (soft delete)"""
-        conversation = self.get_conversation(conversation_id, request.user)
+        sessionid = request.query_params.get('sessionid')
+        if not sessionid:
+            return Response({'error': 'sessionid is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        session = self._get_session(sessionid)
+        if not session:
+            return Response({'error': 'Invalid session'}, status=status.HTTP_404_NOT_FOUND)
+
+        conversation = self.get_conversation(conversation_id, session)
         if not conversation:
             return Response({'error': 'Conversation not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -111,24 +141,32 @@ class ChatConversationDetailView(APIView):
 
 class ChatMessageSendView(APIView):
     """
-    POST /api/chat/conversations/{id}/messages/  - Send message and get response
+    POST /api/chat/conversations/{id}/messages/?sessionid=xxx  - Send message and get response
     """
-    # permission_classes = [IsAuthenticated]  # Disabled for testing
+
+    def _get_session(self, sessionid):
+        """Get session from sessionid"""
+        try:
+            return ChatSession.objects.get(sessionid=sessionid)
+        except ChatSession.DoesNotExist:
+            return None
 
     def post(self, request, conversation_id):
         """
         Send message to conversation and get AI response.
         Supports streaming via query param ?stream=true
+        Requires sessionid parameter
         """
-        from django.contrib.auth.models import User
+        sessionid = request.query_params.get('sessionid')
+        if not sessionid:
+            return Response({'error': 'sessionid is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Get test user for anonymous requests
-        user = request.user if request.user and not request.user.is_anonymous else None
-        if not user:
-            user, _ = User.objects.get_or_create(username='test_user')
+        session = self._get_session(sessionid)
+        if not session:
+            return Response({'error': 'Invalid session'}, status=status.HTTP_404_NOT_FOUND)
 
         try:
-            conversation = ChatConversation.objects.get(id=conversation_id, user=user)
+            conversation = ChatConversation.objects.get(id=conversation_id, session=session)
         except ChatConversation.DoesNotExist:
             return Response({'error': 'Conversation not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -316,4 +354,119 @@ def generate_code_view(request):
 
     except Exception as e:
         logger.error(f'[AIChat] Code generation error: {e}')
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def init_session_view(request):
+    """
+    POST /api/chat/init/  - Initialize a new chat session
+
+    Returns: {"sessionid": "xxx"}
+    """
+    import uuid
+    from django.contrib.auth.models import User
+
+    try:
+        # Get authenticated user or use default
+        user = request.user if request.user.is_authenticated else User.objects.first()
+        if not user:
+            return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create new session with unique sessionid
+        sessionid = str(uuid.uuid4())[:8]  # Short unique id
+        session = ChatSession.objects.create(
+            sessionid=sessionid,
+            user=user,
+            is_active=True
+        )
+
+        # Auto-create first conversation
+        conversation = ChatConversation.objects.create(
+            session=session,
+            user=user,
+            title='New Chat'
+        )
+
+        logger.info(f'[AIChat] New session created: {sessionid} for user {user.username}')
+        return Response({
+            'sessionid': sessionid,
+            'conversation_id': str(conversation.id)
+        }, status=status.HTTP_201_CREATED)
+
+    except Exception as e:
+        logger.error(f'[AIChat] Session init error: {e}')
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def send_message_simple_view(request):
+    """
+    POST /api/chat/send/  - Send message and get AI response
+
+    Request body: {"sessionid": "xxx", "message": "your query"}
+    Returns: {"response": "AI answer", "sessionid": "xxx"}
+    """
+    sessionid = request.data.get('sessionid')
+    message = request.data.get('message', '')
+
+    if not sessionid or not message:
+        return Response(
+            {'error': 'sessionid and message are required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        session = ChatSession.objects.get(sessionid=sessionid)
+    except ChatSession.DoesNotExist:
+        return Response({'error': 'Invalid sessionid'}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        conversation = ChatConversation.objects.filter(session=session, is_active=True).first()
+        if not conversation:
+            conversation = ChatConversation.objects.create(
+                session=session,
+                user=session.user,
+                title='Chat'
+            )
+
+        user_msg = ChatMessage.objects.create(
+            conversation=conversation,
+            role='user',
+            content=message
+        )
+
+        logger.info(f'[AIChat] User message: {message[:100]}...')
+
+        history = [
+            {'role': m.role, 'content': m.content}
+            for m in conversation.messages.exclude(id=user_msg.id).order_by('-created_at')[:3]
+        ]
+        history.reverse()
+
+        ai_service = get_ai_service()
+        response_text, tokens_used = ai_service.get_response(message, history)
+
+        ChatMessage.objects.create(
+            conversation=conversation,
+            role='assistant',
+            content=response_text,
+            tokens_used=tokens_used,
+            is_streaming_complete=True
+        )
+
+        conversation.message_count = conversation.messages.count()
+        conversation.total_tokens_used += tokens_used
+        conversation.last_message_at = timezone.now()
+        conversation.save(update_fields=['message_count', 'total_tokens_used', 'last_message_at'])
+
+        logger.info(f'[AIChat] Response sent: {tokens_used} tokens')
+        return Response({
+            'response': response_text,
+            'sessionid': sessionid,
+            'tokens_used': tokens_used
+        }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        logger.error(f'[AIChat] Send message error: {e}')
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
