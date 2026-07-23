@@ -949,24 +949,43 @@ class ProjectAssetListCreateView(APIView):
     def post(self, request, pk):
         from .tasks import run_asset_extraction_task
 
-        project, error = _get_project_or_404(pk)
-        if error:
-            return error
+        try:
+            project, error = _get_project_or_404(pk)
+            if error:
+                return error
 
-        serializer = ProjectAssetCreateSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            logger.info(f'[AssetUpload] Request data keys: {list(request.data.keys())}')
+            logger.info(f'[AssetUpload] Request files keys: {list(request.FILES.keys())}')
 
-        asset = serializer.save(project=project, extraction_status='pending')
+            serializer = ProjectAssetCreateSerializer(data=request.data)
+            if not serializer.is_valid():
+                logger.error(f'[AssetUpload] Serializer validation failed: {serializer.errors}')
+                logger.error(f'[AssetUpload] Data: {request.data}')
+                logger.error(f'[AssetUpload] Files: {request.FILES}')
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        # Fire async extraction + summarisation task
-        run_asset_extraction_task.delay(str(asset.id))
-        logger.info(f'Asset {asset.id} created for project {project.id}, fired extraction task')
+            asset = serializer.save(project=project, extraction_status='pending')
+            logger.info(f'[AssetUpload] Asset {asset.id} saved successfully')
 
-        return Response(
-            ProjectAssetSerializer(asset, context={'request': request}).data,
-            status=status.HTTP_201_CREATED
-        )
+            # Fire async extraction + summarisation task
+            try:
+                run_asset_extraction_task.delay(str(asset.id))
+                logger.info(f'[AssetUpload] Extraction task fired for asset {asset.id}')
+            except Exception as task_error:
+                logger.error(f'[AssetUpload] Task firing failed: {task_error}')
+                # Don't fail the upload, task will retry
+
+            return Response(
+                ProjectAssetSerializer(asset, context={'request': request}).data,
+                status=status.HTTP_201_CREATED
+            )
+
+        except Exception as e:
+            logger.exception(f'[AssetUpload] Unexpected error: {str(e)}')
+            return Response(
+                {'error': f'Upload failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class ProjectAssetToggleView(APIView):

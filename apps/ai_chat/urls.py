@@ -10,6 +10,9 @@ urlpatterns = [
     path('init/', views.init_session_view, name='chat-init'),
     path('send/', views.send_message_simple_view, name='chat-send'),
 
+    # Task monitoring
+    path('tasks/<str:task_id>/', views.get_task_result_view, name='chat-task-result'),
+
     # Conversations
     path('conversations/', views.ChatConversationListCreateView.as_view(), name='chat-conversation-list-create'),
     path('conversations/<uuid:conversation_id>/', views.ChatConversationDetailView.as_view(), name='chat-conversation-detail'),

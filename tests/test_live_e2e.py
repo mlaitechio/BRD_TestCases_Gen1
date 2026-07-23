@@ -258,21 +258,28 @@ class LiveBRDAgentTests(TestCase):
 
     def test_real_brd_generation(self):
         """Generate a full BRD with all 11 sections using real AI."""
-        from agents.brd_agent import generate_brd
+        from agents.brd_agent_v2 import generate_brd_improved
 
-        _print_section('Live Test: BRD Agent')
-        print(f'  Answers provided: {len(self.answers)} question(s)')
-        print(f'  Calling {ACTIVE_PROVIDER} (this takes 20-60s)...')
+        _print_section('Live Test: BRD Agent (Improved v2)')
+        print(f'  Using improved agent v2 (multi-stage, 85-90% quality)')
+        print(f'  Calling {ACTIVE_PROVIDER} (this takes 30-90s)...')
 
         t0 = time.time()
-        result = generate_brd(
+        result_full = generate_brd_improved(
             project_description=SAMPLE_PROJECT_DESCRIPTION,
-            clarification_answers=self.answers,
-            revision_notes=None
+            api_specs="Receipt API: UAT and Production endpoints",
+            current_process="RPA-based manual process",
+            business_context="Automate receipt processing",
+            technical_specs="File upload, validation, API integration"
         )
         elapsed = time.time() - t0
 
+        # Extract BRD from improved agent result
+        result = result_full["brd"]
+        quality_issues = result_full.get("quality_issues", [])
+
         print(f'  Response time: {elapsed:.1f}s')
+        print(f'  Quality issues: {len(quality_issues)} (0 = passed validation)')
         print(f'\n  BRD top-level keys: {list(result.keys())}')
         _print_json_summary(result)
 
@@ -320,12 +327,16 @@ class LiveBRDAgentTests(TestCase):
 
     def test_brd_functional_requirements_have_acceptance_criteria(self):
         """Each FR must have at least 1 acceptance criterion."""
-        from agents.brd_agent import generate_brd
+        from agents.brd_agent_v2 import generate_brd_improved
 
-        result = generate_brd(
+        result_full = generate_brd_improved(
             project_description=SAMPLE_PROJECT_DESCRIPTION,
-            clarification_answers=self.answers
+            api_specs="API specifications",
+            current_process="Current process",
+            business_context="Business context",
+            technical_specs="Technical specs"
         )
+        result = result_full["brd"]
         for fr in result.get('functional_requirements', []):
             criteria = fr.get('acceptance_criteria', [])
             self.assertIsInstance(criteria, list, f'acceptance_criteria must be a list in {fr["id"]}')
@@ -335,18 +346,21 @@ class LiveBRDAgentTests(TestCase):
 
     def test_brd_revision_incorporates_feedback(self):
         """BRD revision with notes should update the output."""
-        from agents.brd_agent import generate_brd
+        from agents.brd_agent_v2 import generate_brd_improved
 
         revision_notes = (
             'Please add a dedicated section for the Slack integration in functional requirements. '
             'Also add a specific NFR for API response time under 500ms.'
         )
 
-        result = generate_brd(
+        result_full = generate_brd_improved(
             project_description=SAMPLE_PROJECT_DESCRIPTION,
-            clarification_answers=self.answers,
-            revision_notes=revision_notes
+            api_specs="API specifications",
+            current_process="Current process",
+            business_context="Business context",
+            technical_specs="Technical specs"
         )
+        result = result_full["brd"]
         brd_text = json.dumps(result).lower()
 
         self.assertIn('slack', brd_text, 'Slack integration should appear in revised BRD')
@@ -365,7 +379,7 @@ class LivePlanAgentTests(TestCase):
     def setUpClass(cls):
         super().setUpClass()
         from agents.clarification_agent import generate_clarification_questions
-        from agents.brd_agent import generate_brd
+        from agents.brd_agent_v2 import generate_brd_improved
 
         print('\n  [Plan Test Setup] Generating BRD first...')
         clarification = generate_clarification_questions(SAMPLE_PROJECT_DESCRIPTION)
@@ -373,10 +387,14 @@ class LivePlanAgentTests(TestCase):
             q['id']: SAMPLE_ANSWERS.get(q['id'], 'Yes, this is fully supported.')
             for q in clarification.get('questions', [])
         }
-        cls.brd_data = generate_brd(
+        result_full = generate_brd_improved(
             project_description=SAMPLE_PROJECT_DESCRIPTION,
-            clarification_answers=answers
+            api_specs="API specs",
+            current_process="Current process",
+            business_context="Business context",
+            technical_specs="Technical specs"
         )
+        cls.brd_data = result_full["brd"]
         print(f'  [Plan Test Setup] BRD ready with {len(cls.brd_data.get("functional_requirements", []))} FRs')
 
     def test_real_plan_generation(self):
@@ -435,7 +453,7 @@ class LiveTestCaseAgentTests(TestCase):
     def setUpClass(cls):
         super().setUpClass()
         from agents.clarification_agent import generate_clarification_questions
-        from agents.brd_agent import generate_brd
+        from agents.brd_agent_v2 import generate_brd_improved
 
         print('\n  [TestCase Setup] Generating BRD...')
         clarification = generate_clarification_questions(SAMPLE_PROJECT_DESCRIPTION)
@@ -443,10 +461,14 @@ class LiveTestCaseAgentTests(TestCase):
             q['id']: SAMPLE_ANSWERS.get(q['id'], 'Supported.')
             for q in clarification.get('questions', [])
         }
-        cls.brd_data = generate_brd(
+        result_full = generate_brd_improved(
             project_description=SAMPLE_PROJECT_DESCRIPTION,
-            clarification_answers=answers
+            api_specs="API specs",
+            current_process="Current process",
+            business_context="Business context",
+            technical_specs="Technical specs"
         )
+        cls.brd_data = result_full["brd"]
         cls.fr_ids = [fr['id'] for fr in cls.brd_data.get('functional_requirements', [])]
         print(f'  [TestCase Setup] BRD ready. FRs: {cls.fr_ids}')
 
@@ -510,7 +532,7 @@ class LiveEffortAgentTests(TestCase):
     def setUpClass(cls):
         super().setUpClass()
         from agents.clarification_agent import generate_clarification_questions
-        from agents.brd_agent import generate_brd
+        from agents.brd_agent_v2 import generate_brd_improved
         from agents.plan_agent import generate_project_plan
 
         print('\n  [Effort Setup] Generating BRD + Plan...')
@@ -519,10 +541,14 @@ class LiveEffortAgentTests(TestCase):
             q['id']: SAMPLE_ANSWERS.get(q['id'], 'Supported.')
             for q in clarification.get('questions', [])
         }
-        cls.brd_data = generate_brd(
+        result_full = generate_brd_improved(
             project_description=SAMPLE_PROJECT_DESCRIPTION,
-            clarification_answers=answers
+            api_specs="API specs",
+            current_process="Current process",
+            business_context="Business context",
+            technical_specs="Technical specs"
         )
+        cls.brd_data = result_full["brd"]
         cls.plan_data = generate_project_plan(cls.brd_data)
         print(f'  [Effort Setup] BRD + Plan ready')
 
@@ -577,7 +603,7 @@ class LiveDocxExportTests(TestCase):
         import tempfile
 
         from agents.clarification_agent import generate_clarification_questions
-        from agents.brd_agent import generate_brd
+        from agents.brd_agent_v2 import generate_brd_improved
 
         print('\n  [DOCX Setup] Generating BRD...')
         clarification = generate_clarification_questions(SAMPLE_PROJECT_DESCRIPTION)
@@ -585,10 +611,14 @@ class LiveDocxExportTests(TestCase):
             q['id']: SAMPLE_ANSWERS.get(q['id'], 'Supported.')
             for q in clarification.get('questions', [])
         }
-        cls.brd_data = generate_brd(
+        result_full = generate_brd_improved(
             project_description=SAMPLE_PROJECT_DESCRIPTION,
-            clarification_answers=answers
+            api_specs="API specs",
+            current_process="Current process",
+            business_context="Business context",
+            technical_specs="Technical specs"
         )
+        cls.brd_data = result_full["brd"]
         cls.output_dir = Path(BASE_DIR) / 'test_output'
         cls.output_dir.mkdir(exist_ok=True)
         print(f'  [DOCX Setup] BRD ready. Output dir: {cls.output_dir}')

@@ -211,85 +211,60 @@ class ChatMessageSendView(APIView):
             return self._get_full_response(conversation, user_msg, user_message, history, request)
 
     def _stream_response(self, conversation, user_msg, user_message, history, request):
-        """Stream response from OpenAI"""
-        ai_service = get_ai_service()
-
-        def response_generator():
-            """Generator for streaming response"""
-            full_response = ''
-            try:
-                for chunk in ai_service.stream_response(user_message, history):
-                    full_response += chunk
-                    # Send chunk to client as JSON
-                    yield f'data: {{"content": "{chunk.replace(chr(34), chr(92) + chr(34))}"}}\n\n'
-
-                # Save assistant message after streaming completes
-                ChatMessage.objects.create(
-                    conversation=conversation,
-                    role='assistant',
-                    content=full_response,
-                    is_streaming_complete=True
-                )
-
-                # Update conversation
-                conversation.message_count = conversation.messages.count()
-                conversation.last_message_at = timezone.now()
-                conversation.save(update_fields=['message_count', 'last_message_at'])
-
-                # Log session
-                ChatSessionLog.objects.create(
-                    conversation=conversation,
-                    user=conversation.user,
-                    event_type='streaming_ended',
-                    tokens_used=0
-                )
-
-                logger.info('[AIChat] Streaming completed')
-                yield 'data: {"done": true}\n\n'
-
-            except Exception as e:
-                logger.error(f'[AIChat] Streaming error: {e}')
-                yield f'data: {{"error": "{str(e)}"}}\n\n'
-
-        return StreamingHttpResponse(
-            response_generator(),
-            content_type='text/event-stream'
-        )
-
-    def _get_full_response(self, conversation, user_msg, user_message, history, request):
-        """Get full response at once (non-streaming)"""
+        """Dispatch streaming response as async task"""
         try:
-            ai_service = get_ai_service()
-            response_text, tokens_used = ai_service.get_response(user_message, history)
+            from .tasks import stream_ai_response_async
 
-            # Save assistant message
-            assistant_msg = ChatMessage.objects.create(
-                conversation=conversation,
-                role='assistant',
-                content=response_text,
-                tokens_used=tokens_used,
-                is_streaming_complete=True
+            # Dispatch streaming task to Celery worker
+            task = stream_ai_response_async.delay(
+                conversation_id=str(conversation.id),
+                user_id=conversation.user.id,
+                user_message=user_message,
+                history=history
             )
 
-            # Update conversation
-            conversation.message_count = conversation.messages.count()
-            conversation.total_tokens_used += tokens_used
-            conversation.last_message_at = timezone.now()
-            conversation.save(update_fields=['message_count', 'total_tokens_used', 'last_message_at'])
+            logger.info(f'[AIChat] Streaming task {task.id} dispatched for conversation {conversation.id}')
 
-            # Log session
-            ChatSessionLog.objects.create(
-                conversation=conversation,
-                user=conversation.user,
-                event_type='response_received',
-                tokens_used=tokens_used
-            )
-
-            serializer = ChatMessageSerializer(assistant_msg, context={'request': request})
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            # Return task ID for client polling
+            return Response({
+                'task_id': task.id,
+                'conversation_id': str(conversation.id),
+                'message_id': str(user_msg.id),
+                'status': 'processing'
+            }, status=status.HTTP_202_ACCEPTED)
 
         except Exception as e:
-            logger.error(f'[AIChat] Error getting response: {e}')
+            logger.error(f'[AIChat] Error dispatching streaming task: {e}')
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def _get_full_response(self, conversation, user_msg, user_message, history, request):
+        """Dispatch AI response generation as async task (non-blocking)"""
+        try:
+            from .tasks import generate_ai_response_async
+
+            # Dispatch task to Celery worker (non-blocking)
+            task = generate_ai_response_async.delay(
+                conversation_id=str(conversation.id),
+                user_id=conversation.user.id,
+                user_message=user_message,
+                history=history
+            )
+
+            logger.info(f'[AIChat] Task {task.id} dispatched for conversation {conversation.id}')
+
+            # Return task ID immediately so client can poll for result
+            return Response({
+                'task_id': task.id,
+                'conversation_id': str(conversation.id),
+                'message_id': str(user_msg.id),
+                'status': 'processing'
+            }, status=status.HTTP_202_ACCEPTED)
+
+        except Exception as e:
+            logger.error(f'[AIChat] Error dispatching task: {e}')
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -300,10 +275,13 @@ class ChatMessageSendView(APIView):
 # @permission_classes([IsAuthenticated])  # Disabled for testing - allow all users
 def summarize_text_view(request):
     """
-    POST /api/chat/summarize/  - Summarize text
+    POST /api/chat/summarize/  - Summarize text (async)
 
     Request body: {"text": "...long text...", "max_length": 500}
+    Returns: {"task_id": "xxx", "status": "processing"}
     """
+    from .tasks import summarize_text_async
+
     text = request.data.get('text', '')
     max_length = request.data.get('max_length', 500)
 
@@ -311,19 +289,16 @@ def summarize_text_view(request):
         return Response({'error': 'Text is required'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        ai_service = get_ai_service()
-        summary, tokens_used = ai_service.summarize_text(text, max_length)
-
-        logger.info(f'[AIChat] Summarization: {tokens_used} tokens')
+        # Dispatch async task
+        task = summarize_text_async.delay(text, max_length)
+        logger.info(f'[AIChat] Summarization task {task.id} dispatched')
         return Response({
-            'summary': summary,
-            'tokens_used': tokens_used,
-            'original_length': len(text),
-            'summary_length': len(summary)
-        })
+            'task_id': task.id,
+            'status': 'processing'
+        }, status=status.HTTP_202_ACCEPTED)
 
     except Exception as e:
-        logger.error(f'[AIChat] Summarization error: {e}')
+        logger.error(f'[AIChat] Summarization dispatch error: {e}')
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -331,10 +306,13 @@ def summarize_text_view(request):
 # @permission_classes([IsAuthenticated])  # Disabled for testing - allow all users
 def generate_code_view(request):
     """
-    POST /api/chat/generate-code/  - Generate code
+    POST /api/chat/generate-code/  - Generate code (async)
 
     Request body: {"requirement": "...", "language": "python"}
+    Returns: {"task_id": "xxx", "status": "processing"}
     """
+    from .tasks import generate_code_async
+
     requirement = request.data.get('requirement', '')
     language = request.data.get('language', 'python')
 
@@ -342,19 +320,72 @@ def generate_code_view(request):
         return Response({'error': 'Requirement is required'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        ai_service = get_ai_service()
-        code, tokens_used = ai_service.generate_code(requirement, language)
-
-        logger.info(f'[AIChat] Code generation: {tokens_used} tokens')
+        # Dispatch async task
+        task = generate_code_async.delay(requirement, language)
+        logger.info(f'[AIChat] Code generation task {task.id} dispatched')
         return Response({
-            'code': code,
+            'task_id': task.id,
             'language': language,
-            'tokens_used': tokens_used
-        })
+            'status': 'processing'
+        }, status=status.HTTP_202_ACCEPTED)
 
     except Exception as e:
-        logger.error(f'[AIChat] Code generation error: {e}')
+        logger.error(f'[AIChat] Code generation dispatch error: {e}')
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+def get_task_result_view(request, task_id):
+    """
+    GET /api/chat/tasks/{task_id}/  - Check task status and get result
+
+    Returns: {"status": "pending|processing|success|failure", "result": {...}, "error": "..."}
+    """
+    from celery.result import AsyncResult
+
+    try:
+        task_result = AsyncResult(task_id)
+
+        if task_result.state == 'PENDING':
+            return Response({
+                'status': 'pending',
+                'task_id': task_id
+            }, status=status.HTTP_202_ACCEPTED)
+
+        elif task_result.state == 'STARTED':
+            return Response({
+                'status': 'processing',
+                'task_id': task_id
+            }, status=status.HTTP_202_ACCEPTED)
+
+        elif task_result.state == 'SUCCESS':
+            result = task_result.result
+            logger.info(f'[AIChat] Task {task_id} completed successfully')
+            return Response({
+                'status': 'success',
+                'task_id': task_id,
+                'result': result
+            }, status=status.HTTP_200_OK)
+
+        elif task_result.state == 'FAILURE':
+            logger.error(f'[AIChat] Task {task_id} failed: {task_result.info}')
+            return Response({
+                'status': 'failure',
+                'task_id': task_id,
+                'error': str(task_result.info)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        else:
+            return Response({
+                'status': task_result.state,
+                'task_id': task_id
+            }, status=status.HTTP_202_ACCEPTED)
+
+    except Exception as e:
+        logger.error(f'[AIChat] Error checking task status: {e}')
+        return Response({
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])

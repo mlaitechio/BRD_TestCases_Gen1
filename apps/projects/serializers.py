@@ -156,15 +156,67 @@ class ProjectAssetSerializer(serializers.ModelSerializer):
 class ProjectAssetCreateSerializer(serializers.ModelSerializer):
     """Used when uploading/linking a new asset via a source connector."""
 
+    text_content = serializers.CharField(required=False, allow_blank=True, write_only=True)
+
     class Meta:
         model = ProjectAsset
-        fields = ['id', 'connector_type', 'title', 'file', 'url']
+        fields = ['id', 'connector_type', 'title', 'file', 'url', 'text_content']
         read_only_fields = ['id']
+        extra_kwargs = {
+            'connector_type': {'required': False},
+            'title': {'required': False},
+        }
+
+    def to_internal_value(self, data):
+        """Map frontend connector_type labels to valid choices BEFORE validation."""
+        if 'connector_type' in data:
+            connector_type_map = {
+                'mails': 'email',
+                'emails': 'email',
+                'documents': 'document',
+                'chats': 'chat',
+            }
+            data['connector_type'] = connector_type_map.get(data['connector_type'], data['connector_type'])
+
+        return super().to_internal_value(data)
 
     def validate(self, data):
-        connector_type = data.get('connector_type')
+        from django.core.files.base import ContentFile
+
+        connector_type = data.get('connector_type', 'document')
         file = data.get('file')
         url = data.get('url')
+        title = data.get('title')
+        text_content = data.get('text_content', '')
+
+        # Map frontend labels to valid connector types
+        connector_type_map = {
+            'mails': 'email',
+            'emails': 'email',
+            'document': 'document',
+            'documents': 'document',
+            'chats': 'chat',
+        }
+
+        if connector_type in connector_type_map:
+            connector_type = connector_type_map[connector_type]
+            data['connector_type'] = connector_type
+
+        # Auto-set connector type to 'document' if not provided
+        if not connector_type:
+            data['connector_type'] = 'document'
+            connector_type = 'document'
+
+        # Auto-set title from filename if not provided
+        if not title and file:
+            data['title'] = file.name
+            title = file.name
+
+        # Handle pasted text content (create virtual file for chat type)
+        if connector_type == 'chat' and text_content and not file:
+            filename = title or 'pasted_chat.txt'
+            file = ContentFile(text_content.encode('utf-8'), name=filename)
+            data['file'] = file
 
         if connector_type == 'url':
             if not url:
